@@ -16,6 +16,8 @@
 // You should have received a copy of the GNU General Public License
 // along with RealEmu.  If not, see <https://www.gnu.org/licenses/>.
 
+import Vector::*;
+import GetPut::*;
 import Arbiter::*;
 
 function Tuple3#(Vector#(portSz, Bool), Bit#(TLog#(portSz)), Bool)
@@ -30,12 +32,20 @@ runFixedPriorityArbitration(Vector#(portSz, Bool) reqWireVec);
         let isReq = reqWireVec[idx];
         if (!found && isReq) begin
             grantVec[idx] = True;
-            grantId       = fromInteger(x);
+            grantId       = fromInteger(idx);
             found         = True;
         end
     end
 
     return tuple3(grantVec, grantId, found);
+endfunction
+
+function Vector#(n, Bool) readPulseWire (Vector#(n, PulseWire) pwVec);
+    Vector#(n, Bool) value = replicate(False);
+    for (Integer idx = 0; idx < valueOf(n); idx = idx + 1) begin
+        value[idx] = pwVec[idx];
+    end
+    return value;
 endfunction
 
 
@@ -45,8 +55,7 @@ module mkFixedPriorityArbiter(Arbiter_IFC#(portSz));
     Vector#(portSz, PulseWire)    reqWireVec     <- replicateM(mkPulseWire);
     
     rule every;
-        let {grantVec, grantId, found} = runFixedPriorityArbitration(reqWireVec)
-    
+        let {grantVec, grantId, found} = runFixedPriorityArbitration(readPulseWire(reqWireVec));
         grantVecWire  <= grantVec;
         grantIdWire   <= grantId;
     endrule
@@ -61,7 +70,7 @@ module mkFixedPriorityArbiter(Arbiter_IFC#(portSz));
             endmethod
 
             method Action lock();
-                dummyAction;
+                // dummyAction;
             endmethod
 
             method grant ();
@@ -74,136 +83,76 @@ module mkFixedPriorityArbiter(Arbiter_IFC#(portSz));
     method    grant_id = grantIdWire;
 endmodule
 
+interface ArbitPipe#(numeric type portSz);
+    interface Vector#(portSz, ArbiterClient_IFC) clients;
+    interface Get#(Bit#(TLog#(portSz)))          getResult;
+endinterface
+
+typedef 1024 ClientNum;
 typedef 32 ARB_MAX_PORT;
+typedef TDiv#(ClientNum, ARB_MAX_PORT) ArbiterNum;
 
-module mkFixedPriorityArbiterPipeline1024(Arbiter_IFC#(portSz));
-    Wire#(Vector#(portSz, Bool))  grantVecWire   <- mkBypassWire;
-    Wire#(Bit#(TLog#(portSz)))    grantIdWire    <- mkBypassWire;
+module mkFixedPriorityArbiterPipeline1024(Arbiter_IFC#(ClientNum));
+    Wire#(Vector#(ClientNum, Bool))  grantVecWire   <- mkBypassWire;
+    Wire#(Bit#(TLog#(ClientNum)))    grantIdWire    <- mkBypassWire;
 
-    Integer arbitSz = valueOf(TDiv#(portSz, ARB_MAX_PORT));
+    Vector#(ArbiterNum, Vector#(ARB_MAX_PORT, PulseWire)) reqWireVecVec   <- replicateM(replicateM(mkPulseWire));
 
-    Vector#(arbitSz, Vector#(ARB_MAX_PORT, PulseWire)) reqWireVecVec <- replicateM(replicateM(mkPulseWire));
-    Reg#(Vector#(arbitSz, Bool)) treeReqVecReg <- mkReg(replicate(False));
-    Reg#(Vector#(portSz, Bool))  grantVecReg   <- mkReg#(replicate(False));
+    Reg#(Vector#(ArbiterNum, Bool))                       treeReqVecReg   <- mkReg(replicate(False));
+    Reg#(Vector#(ArbiterNum, Bit#(TLog#(ArbiterNum))))    treeGrantIdReg  <- mkReg(replicate(0));
+    Reg#(Vector#(ClientNum, Bool))                        treeGrantVecReg <- mkReg(replicate(False));
 
     rule arbitTree;
-        Vector#(arbitSz, Bool) treeReqVec = replicate(False);
-        Bit#(portSz) treeGrant
-        for (Integer arbitIdx = 0; arbitIdx < arbitSz; arbitIdx = arbitIdx + 1);
-            let {grantVec, grantId, found} = runFixedPriorityArbitration(reqWireVecVec[arbitIdx]);
+        Vector#(ArbiterNum, Bool) treeReqVec = replicate(False);
+        Vector#(ArbiterNum, Bit#(ARB_MAX_PORT)) treeGrantVec = replicate(0);
+        Vector#(ArbiterNum, Bit#(TLog#(ArbiterNum))) treeGrantIdVec = replicate(0);
+        for (Integer arbitIdx = 0; arbitIdx < valueOf(ArbiterNum); arbitIdx = arbitIdx + 1) begin
+            let {grantVec, grantId, found} = runFixedPriorityArbitration(readPulseWire(reqWireVecVec[arbitIdx]));
             treeReqVec[arbitIdx] = found;
-        treeReqVecReg <= treeReqVec;
+            treeGrantVec[arbitIdx] = pack(grantVec);
+            treeGrantIdVec[arbitIdx] = grantId;
+        end
+        treeReqVecReg   <= treeReqVec;
+        treeGrantVecReg <= unpack(pack(treeGrantVec));
+        treeGrantIdReg  <= treeGrantIdVec;
     endrule
 
     rule arbitLeaf;
         let {grantVec, grantId, found} = runFixedPriorityArbitration(treeReqVecReg);
-        for (Integer clientIdx = 0; clientIdx < valueOf(portSz); clientIdx = clientIdx + 1) begin
-            
+        grantIdWire <= {grantId, treeGrantIdReg[grantId]};
+        Vector#(ClientNum, Bool) resultVec = replicate(False);
+        for (Integer clientIdx = 0; clientIdx < valueOf(ClientNum); clientIdx = clientIdx + 1) begin
+            let arbitIdx = clientIdx / valueOf(ClientNum);
+            resultVec[clientIdx] = grantVec[arbitIdx] && treeGrantVecReg[clientIdx];
         end
-
+        grantVecWire <= resultVec;
     endrule
 
-    Vector#(portSz, ArbiterClient_IFC) clientVec = newVector;
+    Vector#(ClientNum, ArbiterClient_IFC) clientVec = newVector;
 
-    for (Integer clientIdx = 0; clientIdx < valueOf(portSz); clientIdx = clientIdx + 1) begin
+    for (Integer clientIdx = 0; clientIdx < valueOf(ClientNum); clientIdx = clientIdx + 1) begin
 
-        let arbitIdx = clientIdx / valueOf(portSz);
-        let localIdx = clientIdx % valueOf(portSz);
+        let arbitIdx = clientIdx / valueOf(ClientNum);
+        let localIdx = clientIdx % valueOf(ClientNum);
 
         clientVec[clientIdx] = (interface ArbiterClient_IFC
 
             method Action request();
-                reqWireVecVec[arbitIdx].clients[localIdx].request;
+                reqWireVecVec[arbitIdx][localIdx].send;
             endmethod
 
             method Action lock();
-                dummyAction;
+                // dummyAction;
             endmethod
 
             method grant();
-                grantVecWire[clientIdx]
+                return grantVecWire[clientIdx];
+            endmethod
             
-        )
+        endinterface);
     end
 
+    interface clients = clientVec;
+    method    grant_id = grantIdWire;
 endmodule
 
-
-
-/*
- *  Different with a single Arbiter, the ArbitDemux1024 is coupled with data plane
- *  when conduncting arbitration. ArbitDemux1024 consumes less latency than using a
- *  seperated Arbit and Demux, which choosing the data refered to the grant value.
-*/
-interface ArbitDemuxClt#(type tData);
-    method Action request(tData);
-    method Bool   grant();
-endinterface
-
-interface ArbitDemux#(numeric type portSz, type tData);
-    interface Vector#(portSz, ArbitDemuxClt#(tData))    clients;
-    interface Get#(Tuple2#(Bit#(TLog#(portSz)), tData)) result;
-endinterface
-module mkFixedPriorityArbiterDemux#(
-    ArbitDemux#(numeric type portSz, type tData)
-) provisos(
-    Bits#(tData, dataSz),
-    Add#(1, anySz, portSz)
-);
-    
-    Wire#(Vector#(portSz, Bool))  grantVecWire   <- mkBypassWire;
-    Wire#(Bit#(TLog#(portSz)))    grantIdWire    <- mkBypassWire;
-    Reg#(Bit#(TLog#(portSz)))     grantIdReg     <- mkRegU;
-    Reg#(Tuple2#(Bit#(TLog#(portSz)), tData)) resultTp <- mkFIFO;
-
-    Vector#(portSz, PulseWire)    reqWireVec     <- replicateM(mkPulseWire);
-    Vector#(portSz, Reg#(tData))  dataRegVec     <- replicateM(mkWire)
-    
-    rule arbiter;
-        Vector#(portSz, Bool) grantVec = replicate(False);
-        Bit#(TLog#(portSz))   grantId  = 0;
-        Bool found = False;
-
-        // find the grant_vector, warning it is a combinational logic
-        // so keep portSz not too big
-        for (Integer idx = 0; idx < valueOf(portSz); idx = idx + 1) begin
-            let isReq = reqWireVec[idx];
-            if (!found && isReq && resultQ.notFull) begin
-                grantVec[idx] = True;
-                grantId       = fromInteger(idx);
-                found         = True;
-            end
-        end
-    
-        grantVecWire  <= grantVec;
-        grantIdWire   <= grantId;
-        grantIdReg    <= grantId;
-    endrule
-
-    rule demux;
-
-    endrule
-    
-    // Now create the vector of interfaces
-    Vector#(count, ArbiterClient_IFC) client_vector = newVector;
-    
-    for (Integer x = 0; x < icount; x = x + 1)
-    
-        client_vector[x] = (interface ArbiterClient_IFC
-    
-                    method Action request();
-                    request_vector[x].send();
-                    endmethod
-    
-                    method Action lock();
-                    dummyAction;
-                    endmethod
-    
-                    method grant ();
-                    return grant_vector[x];
-                    endmethod
-                endinterface);
-    
-    interface clients = client_vector;
-    method    grant_id = grant_id_wire;
-    endmodule

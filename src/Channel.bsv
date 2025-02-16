@@ -76,8 +76,12 @@ module mkGainLossModelFreeSpace(ChannelModel);
         // TODO: Calculate Rx Power based on distance and Tx Power
     endrule
 
-    rule handshake;
+    rule handshakeRx;
         rxRespQ.deq;
+    endrule
+
+    rule handshakeTx;
+        txRespQ.enq;
     endrule
 
     interface phyTxMetaSrv = toGPServer(txReqQ, txRespQ);
@@ -88,4 +92,17 @@ interface ChannelModel;
     Vector#(MAX_DEV_NUM, PhyTxSrv) phyTxSrvVec;
     Vector#(MAX_DEV_NUM, PhyRxClt) phyRxCltVec;
 endinterface
+
+module mkChannelFreeSpace(ChannelModel);
+
+    ArbitPipe#(MAX_DEV_NUM) arbiter <- mkFixedPriorityArbiterPipeline1024;
+    MuxPipe#(MAX_DEV_NUM)   mux     <- mkMuxPipeline1024;
+
+    rule getArbitResult;
+        let grantId = arbiter.grantId.get;
+        mux.grantId.put
+    endrule
+
+
+endmodule
 

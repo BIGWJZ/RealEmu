@@ -1,0 +1,12 @@
+build
+output
+backend/verilog
+generate
+.Xil
+*.log
+*.jou
+*.ltx
+*.hex
+*.bin
+*.o
+__pycache__
