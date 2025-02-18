@@ -31,7 +31,7 @@ interface MacCore;
 endinterface
 
 // A Fake MAC without any access control
-module mkMacPipe(MacCore);
+module mkMacPipe#(Integer id)(MacCore);
     FIFO#(MacTxReq)  highMacTxReqQ  <- mkFIFO;
     FIFO#(MacTxResp) highMacTxRespQ <- mkFIFO;
     FIFO#(MacRxReq)  highMacRxReqQ  <- mkFIFO;
@@ -42,16 +42,51 @@ module mkMacPipe(MacCore);
     FIFO#(MacRxReq)  lowMacRxReqQ   <- mkFIFO;
     FIFO#(MacRxResp) lowMacRxRespQ  <- mkFIFO;
 
+    FIFO#(MacCfgReq)  configReqQ    <- mkFIFO;
+    FIFO#(MacCfgResp) configRespQ   <- mkFIFO;
+
     Reg#(MacConfig)  macCfgReg      <- mkRegU;
+    Reg#(MacStatus)  macStaReg      <- mkRegU;
 
     rule forwardTx;
-        
+        let txReq = highMacTxReqQ.first;
+        highMacTxReqQ.deq;
+        highMacTxRespQ.enq(MacTxResp {})
+        lowMacTxReqQ.enq(txReq);
     endrule
 
+    rule handshakeTx;
+        lowMacTxRespQ.deq;
+    endrule
+
+    rule forwardRx;
+        let rxReq = lowMacRxReqQ.first;
+        lowMacRxReqQ.deq;
+        if (macCfgReg.filterEn && rxReq.dstId == fromInteger(id)) begin
+            highMacRxReqQ.enq(rxReq);
+        end
+    endrule
+
+    rule handshakeRx;
+        highMacRxRespQ.deq;
+    endrule
+
+    rule setCfg;
+        macCfgReg <= configReqQ.first;
+        configReqQ.deq;
+        configRespQ.enq(macStaReg);
+    endrule
+
+    interface highMacTxSrv = toGPServer(highMacTxReqQ, highMacTxRespQ);
+    interface highMacRxClt = toGPClient(highMacRxReqQ, highMacRxRespQ);
+    interface lowMacTxClt  = toGPClient(lowMacTxReqQ, lowMacTxRespQ);
+    interface lowMacRxSrv  = toGPServer(lowMacRxReqQ, lowMacRxRespQ);
+    
+    interface configSrv    = toGPServer(configReqQ, configRespQ);
 endmodule
 
 // 802.11 DCF Low Mac Layer
-module mkMacCsma(MacCore);
+module mkMacCsma#(Integer id)(MacCore);
     FIFO#(MacTxReq)  highMacTxReqQ  <- mkFIFO;
     FIFO#(MacTxResp) highMacTxRespQ <- mkFIFO;
     FIFO#(MacRxReq)  highMacRxReqQ  <- mkFIFO;

@@ -1,7 +1,7 @@
 include ../Makefile.base
 
 TESTFILE ?= TestArbiter.bsv
-TOPMODULE ?= mkTestFixedPriorityArbiter
+TOPMODULE ?= mkTestArbiterPipeLine
 DIR_BSV_GENERATED ?= $(BUILDDIR)
 
 SIMSCRIPT_NAME = ./$(TOPMODULE).sh

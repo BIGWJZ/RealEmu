@@ -100,6 +100,26 @@ typedef Client#(MacTxReq, MacTxResp) MacTxClt;
 typedef Server#(MacRxReq, MacRxResp) MacRxSrv;
 typedef Client#(MacRxReq, MacRxResp) MacRxClt;
 
+typedef 16 CW_WIDTH;
+typedef Bit#(CW_WIDTH) ContWindow;
+typedef Bit#(4) RetryTime;
+
+typedef struct {
+    ContWindow cwMin;
+    ContWindow cwMax;
+    RetryTime  retryLimit;
+    Bool       navEn;
+    Bool       txopEn;
+    Bool       filterEn;
+}MacConfig deriving(Bits, Bounded, FShow);
+
+typedef struct {
+
+}MacStatus deriving(Bits, Bounded, FShow);
+
+typedef MacConfig MacCfgReq;
+typedef MacStatus MacCfgResp;
+
 
 // Phy sturctures
 typedef 16 RSSI_WIDTH;
@@ -124,7 +144,7 @@ typedef struct {
     Bool cca;
     Bool isTxing;
     PhyRxFsmState state;
-}PhyStatus deriving(Bits, Bounded, FShow);
+}PhyFSM deriving(Bits, Bounded, FShow);
 
 typedef struct {
 }PhyTxResp deriving(Bits, Bounded, FShow);

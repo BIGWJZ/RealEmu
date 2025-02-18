@@ -40,12 +40,8 @@ runFixedPriorityArbitration(Vector#(portSz, Bool) reqWireVec);
     return tuple3(grantVec, grantId, found);
 endfunction
 
-function Vector#(n, Bool) readPulseWire (Vector#(n, PulseWire) pwVec);
-    Vector#(n, Bool) value = replicate(False);
-    for (Integer idx = 0; idx < valueOf(n); idx = idx + 1) begin
-        value[idx] = pwVec[idx];
-    end
-    return value;
+function Bool readPulseWire (PulseWire pw);
+    return  pw._read;
 endfunction
 
 
@@ -55,7 +51,7 @@ module mkFixedPriorityArbiter(Arbiter_IFC#(portSz));
     Vector#(portSz, PulseWire)    reqWireVec     <- replicateM(mkPulseWire);
     
     rule every;
-        let {grantVec, grantId, found} = runFixedPriorityArbitration(readPulseWire(reqWireVec));
+        let {grantVec, grantId, found} = runFixedPriorityArbitration(map(readPulseWire, reqWireVec));
         grantVecWire  <= grantVec;
         grantIdWire   <= grantId;
     endrule
@@ -83,10 +79,6 @@ module mkFixedPriorityArbiter(Arbiter_IFC#(portSz));
     method    grant_id = grantIdWire;
 endmodule
 
-interface ArbitPipe#(numeric type portSz);
-    interface Vector#(portSz, ArbiterClient_IFC) clients;
-    interface Get#(Bit#(TLog#(portSz)))          getResult;
-endinterface
 
 typedef 1024 ClientNum;
 typedef 32 ARB_MAX_PORT;
@@ -96,24 +88,26 @@ module mkFixedPriorityArbiterPipeline1024(Arbiter_IFC#(ClientNum));
     Wire#(Vector#(ClientNum, Bool))  grantVecWire   <- mkBypassWire;
     Wire#(Bit#(TLog#(ClientNum)))    grantIdWire    <- mkBypassWire;
 
-    Vector#(ArbiterNum, Vector#(ARB_MAX_PORT, PulseWire)) reqWireVecVec   <- replicateM(replicateM(mkPulseWire));
+    Vector#(ClientNum, PulseWire) reqWireVec        <- replicateM(mkPulseWire);
 
     Reg#(Vector#(ArbiterNum, Bool))                       treeReqVecReg   <- mkReg(replicate(False));
     Reg#(Vector#(ArbiterNum, Bit#(TLog#(ArbiterNum))))    treeGrantIdReg  <- mkReg(replicate(0));
-    Reg#(Vector#(ClientNum, Bool))                        treeGrantVecReg <- mkReg(replicate(False));
+    Reg#(Bit#(ClientNum))                                 treeGrantVecReg <- mkReg(0);
 
     rule arbitTree;
         Vector#(ArbiterNum, Bool) treeReqVec = replicate(False);
         Vector#(ArbiterNum, Bit#(ARB_MAX_PORT)) treeGrantVec = replicate(0);
         Vector#(ArbiterNum, Bit#(TLog#(ArbiterNum))) treeGrantIdVec = replicate(0);
         for (Integer arbitIdx = 0; arbitIdx < valueOf(ArbiterNum); arbitIdx = arbitIdx + 1) begin
-            let {grantVec, grantId, found} = runFixedPriorityArbitration(readPulseWire(reqWireVecVec[arbitIdx]));
+            Vector#(ARB_MAX_PORT, PulseWire) reqVec = takeAt(arbitIdx, reqWireVec);
+            Vector#(ARB_MAX_PORT, Bool) reqs = map(readPulseWire, reqVec);
+            let {grantVec, grantId, found} = runFixedPriorityArbitration(reqs);
             treeReqVec[arbitIdx] = found;
             treeGrantVec[arbitIdx] = pack(grantVec);
             treeGrantIdVec[arbitIdx] = grantId;
         end
         treeReqVecReg   <= treeReqVec;
-        treeGrantVecReg <= unpack(pack(treeGrantVec));
+        treeGrantVecReg <= pack(treeGrantVec);
         treeGrantIdReg  <= treeGrantIdVec;
     endrule
 
@@ -122,8 +116,8 @@ module mkFixedPriorityArbiterPipeline1024(Arbiter_IFC#(ClientNum));
         grantIdWire <= {grantId, treeGrantIdReg[grantId]};
         Vector#(ClientNum, Bool) resultVec = replicate(False);
         for (Integer clientIdx = 0; clientIdx < valueOf(ClientNum); clientIdx = clientIdx + 1) begin
-            let arbitIdx = clientIdx / valueOf(ClientNum);
-            resultVec[clientIdx] = grantVec[arbitIdx] && treeGrantVecReg[clientIdx];
+            let arbitIdx = clientIdx / valueOf(ARB_MAX_PORT);
+            resultVec[clientIdx] = grantVec[arbitIdx] && unpack(treeGrantVecReg[clientIdx]);
         end
         grantVecWire <= resultVec;
     endrule
@@ -132,13 +126,10 @@ module mkFixedPriorityArbiterPipeline1024(Arbiter_IFC#(ClientNum));
 
     for (Integer clientIdx = 0; clientIdx < valueOf(ClientNum); clientIdx = clientIdx + 1) begin
 
-        let arbitIdx = clientIdx / valueOf(ClientNum);
-        let localIdx = clientIdx % valueOf(ClientNum);
-
         clientVec[clientIdx] = (interface ArbiterClient_IFC
 
             method Action request();
-                reqWireVecVec[arbitIdx][localIdx].send;
+                reqWireVec[clientIdx].send;
             endmethod
 
             method Action lock();

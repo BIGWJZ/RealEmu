@@ -95,11 +95,11 @@ endinterface
 
 module mkChannelFreeSpace(ChannelModel);
 
-    ArbitPipe#(MAX_DEV_NUM) arbiter <- mkFixedPriorityArbiterPipeline1024;
+    let arbiter <- mkFixedPriorityArbiterPipeline1024;
     MuxPipe#(MAX_DEV_NUM)   mux     <- mkMuxPipeline1024;
 
     rule getArbitResult;
-        let grantId = arbiter.grantId.get;
+        let grantId = arbiter.grantId;
         mux.grantId.put
     endrule
 
