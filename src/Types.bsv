@@ -21,7 +21,8 @@ import ClientServer::*;
 typedef 1024 MAX_DEV_NUM;
 
 typedef 10 DEV_ID_WIDTH;
-typedef 16 POWER_DB_WIDTH;
+typedef 16 POWER_DB_WIDTH;  // (-128~127 dbm) * 256 = -32768~32767
+typedef 8  POWER_DB_SHIFT_WIDTH; // 2^8 = 256
 typedef 32 MPDU_LEN_WIDTH;
 typedef 16 FC_WIDTH;
 typedef 16 DI_WIDTH;
@@ -38,7 +39,7 @@ typedef enum {
 }WifiProtocol deriving(Bits, Bounded, FShow);
 
 typedef Bit#(DEV_ID_WIDTH)    MacId;
-typedef Bit#(POWER_DB_WIDTH)  PowerDb;
+typedef Int#(POWER_DB_WIDTH)  PowerDb;  // (-128~127 dbm) * 256 = -32768~32767
 typedef Bit#(FC_WIDTH)        FrameCtl;
 typedef Bit#(DI_WIDTH)        Duration;
 typedef Bit#(MPDU_LEN_WIDTH)  MpduLen;
@@ -49,7 +50,11 @@ typedef Bit#(MCS_WIDRH) Mcs;
 typedef struct {
     PowerDb power;
     Mcs     mcs;
-}RfParam deriving(Bits, Bounded, FShow);
+}RfParam deriving(Eq, Bits, Bounded, FShow);
+
+function RfParam getEmptyRfParam();
+    return RfParam{power: 0, mcs: 0};
+endfunction
 
 typedef struct {
     // Mac Header
@@ -58,7 +63,11 @@ typedef struct {
     // For sw operation
     MpduLen  length;
     MpduCacheAddr cacheAddr;
-} MpduDigest deriving(Bits, Bounded, FShow);
+} MpduDigest deriving(Eq, Bits, Bounded, FShow);
+
+function MpduDigest getEmptyMpduDigest();
+    return MpduDigest{frameControl: 0, duration: 0, length: 0, cacheAddr: 0};
+endfunction
 
 // Emulation Info Event, a digest of 802.11 MPDU from upper nodes
 typedef struct {
@@ -69,12 +78,22 @@ typedef struct {
     Bool    hasRfParam;
     RfParam rfParam;
     MpduDigest mpduDigest;
-}EmuInfoEvent deriving(Bits, Bounded, FShow);
+}EmuInfoEvent deriving(Eq, Bits, Bounded, FShow);
+
+function EmuInfoEvent getEmptyEmuInfoEvent();
+    return EmuInfoEvent{
+        srcMacId  : 0, 
+        dstMacId  : 0, 
+        hasRfParam: False, 
+        rfParam   : getEmptyRfParam, 
+        mpduDigest: getEmptyMpduDigest
+    };
+endfunction
 
 typedef enum {
     COPY,
     DESTROY
-}ScheOpCode deriving(Bits, Bounded, FShow);
+}ScheOpCode deriving(Eq, Bits, Bounded, FShow);
 
 // Emulation Schedule Event, a indicatior for software operation
 typedef struct {
@@ -83,16 +102,16 @@ typedef struct {
     MpduLen mpduLen;
     MpduCacheAddr mpduCacheAddr;
     ScheOpCode opCode;
-}EmuScheEvent deriving(Bits, Bounded, FShow);
+}EmuScheEvent deriving(Eq, Bits, Bounded, FShow);
 
 
 // Low-Mac Core meta input&output, from High-Mac
 typedef EmuInfoEvent MacTxReq;
 typedef struct {
-} MacTxResp deriving(Bits, Bounded, FShow);;
+} MacTxResp deriving(Eq, Bits, Bounded, FShow);
 typedef EmuScheEvent MacRxReq;
 typedef struct {
-} MacRxResp deriving(Bits, Bounded, FShow);;
+} MacRxResp deriving(Eq, Bits, Bounded, FShow);
 
 typedef Server#(MacTxReq, MacTxResp) MacTxSrv;
 typedef Client#(MacTxReq, MacTxResp) MacTxClt;
@@ -111,11 +130,11 @@ typedef struct {
     Bool       navEn;
     Bool       txopEn;
     Bool       filterEn;
-}MacConfig deriving(Bits, Bounded, FShow);
+}MacConfig deriving(Eq, Bits, Bounded, FShow);
 
 typedef struct {
 
-}MacStatus deriving(Bits, Bounded, FShow);
+}MacStatus deriving(Eq, Bits, Bounded, FShow);
 
 typedef MacConfig MacCfgReq;
 typedef MacStatus MacCfgResp;
@@ -135,8 +154,8 @@ typedef enum {
     S_SyncWindow,
     S_Decoding,
     S_Busy,
-    S_AssertTrans,
-}PhyRxFsmState deriving(Bits, Bounded, FShow);
+    S_AssertTrans
+}PhyRxFsmState deriving(Eq, Bits, Bounded, FShow);
 
 typedef struct {
     RSSI rssi;
@@ -144,10 +163,10 @@ typedef struct {
     Bool cca;
     Bool isTxing;
     PhyRxFsmState state;
-}PhyFSM deriving(Bits, Bounded, FShow);
+}PhyFSM deriving(Eq, Bits, Bounded, FShow);
 
 typedef struct {
-}PhyTxResp deriving(Bits, Bounded, FShow);
+}PhyTxResp deriving(Eq, Bits, Bounded, FShow);
 
 typedef struct {
     PhyId srcId;
@@ -155,18 +174,38 @@ typedef struct {
     RfParam rfParam;
     PpduLen ppduLen;
     MpduDigest mpduDigest;
-}PhyTxReq deriving(Bits, Bounded, FShow);
+}PhyTxReq deriving(Eq, Bits, Bounded, FShow);
+
+function PhyTxReq getEmptyPhyReq();
+    return PhyTxReq{
+        srcId  : 0, 
+        dstId  : 0, 
+        rfParam: getEmptyRfParam, 
+        ppduLen: 0, 
+        mpduDigest: getEmptyMpduDigest};
+endfunction
 
 typedef struct {
-}PhyRxResp deriving(Bits, Bounded, FShow);
+}PhyRxResp deriving(Eq, Bits, Bounded, FShow);
 
 typedef PhyTxReq PhyRxReq;
 
-interface Server#(PhyTxReq, PhyTxResp) PhyTxSrv;
-interface Client#(PhyTxReq, PhyTxResp) PhyTxClt;
+typedef Server#(PhyTxReq, PhyTxResp) PhyTxSrv;
+typedef Client#(PhyTxReq, PhyTxResp) PhyTxClt;
 
-interface Server#(PhyRxReq, PhyRxResp) PhyRxSrv;
-interface Client#(PhyRxReq, PhyRxResp) PhyRxClt;
+typedef Server#(PhyRxReq, PhyRxResp) PhyRxSrv;
+typedef Client#(PhyRxReq, PhyRxResp) PhyRxClt;
 
 
+// Channel Types
 
+typedef 16 DISTANCE_WIDTH;
+typedef Bit#(DISTANCE_WIDTH) NodeDistance;
+
+typedef Bit#(3) LogDistParaN;
+typedef Bit#(8) LogDistPataL0;
+
+typedef struct {
+    LogDistParaN  n;
+    LogDistPataL0 l0;
+}LogDistanceParam deriving(Eq, Bits, Bounded, FShow);

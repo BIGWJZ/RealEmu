@@ -9,4 +9,5 @@ generate
 *.hex
 *.bin
 *.o
+*.txt
 __pycache__
