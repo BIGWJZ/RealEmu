@@ -1,7 +1,7 @@
 include ../Makefile.base
 
-TESTFILE ?= TestChannel.bsv
-TOPMODULE ?= mkTestLogDistanceGainLossModel
+TESTFILE ?= TestDemux.bsv
+TOPMODULE ?= mkTestDemuxPipe
 
 SCRIPT_DIR = ../scripts
 DIR_BSV_GENERATED ?= $(BUILDDIR)
