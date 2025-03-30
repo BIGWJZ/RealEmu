@@ -37,6 +37,6 @@ endfunction
 
 function Action immLog(String modName, String ruleName, Fmt logFmtMsg);
     action
-        $display("[%8d ns] rule %s @ %s: %s", $time, ruleName, modName, logFmtMsg);
+        $display("[%8d ns] %s @ %s: ", $time, ruleName, modName, logFmtMsg);
     endaction
 endfunction

@@ -73,12 +73,12 @@ module mkGainLossModelLogDistance#(
     BRAM2Port#(ChBramAddr, NodeDistance) distanceRam2
     // RegBlock regBlock                                   
 )(GainLossModel);
-    FIFO#(PhyTxReq)  txReqQ  <- mkFIFO;
-    FIFO#(PhyTxResp) txRespQ <- mkFIFO;
-    FIFO#(PhyRxReq)  rxReqQ  <- mkFIFO;
-    FIFO#(PhyRxResp) rxRespQ <- mkFIFO;
+    FIFO#(PhyEvent)    txReqQ  <- mkFIFO;
+    FIFO#(GenericResp) txRespQ <- mkFIFO;
+    FIFO#(PhyEvent)    rxReqQ  <- mkFIFO;
+    FIFO#(GenericResp) rxRespQ <- mkFIFO;
 
-    FIFO#(PhyTxReq)     txPipeQ   <- mkSizedFIFO(valueOf(FSModelPipeDepth));
+    FIFO#(PhyEvent)     txPipeQ   <- mkSizedFIFO(valueOf(FSModelPipeDepth));
     FIFO#(NodeDistance) distPipeQ <- mkSizedFIFO(valueOf(FSModelPipeDepth));  
 
     MathTable lossTable <- mkLogDistanceGainLossTable;
@@ -103,12 +103,12 @@ module mkGainLossModelLogDistance#(
         let phyTxReq = txReqQ.first;
         let txPower = phyTxReq.rfParam.power;
         txReqQ.deq;
-        txRespQ.enq(PhyTxResp{});
+        txRespQ.enq(GenericResp{});
         txPipeQ.enq(phyTxReq);
         let bramReq = BRAMRequest{             
             write: False,          
             responseOnWrite: False,  
-            address: genChBramAddr(phyTxReq.srcId, phyTxReq.dstId),            
+            address: genChBramAddr(phyTxReq.srcPhyId, phyTxReq.dstPhyId),            
             datain: 0             
         };
         distanceRam2.portB.request.put(bramReq);
@@ -152,8 +152,8 @@ endinterface
 // TODO: channel 
 // module mkChannelFreeSpace(ChannelModel);
 
-//     let arbiter <- mkFixedPriorityArbiterPipeline1024;
-//     MuxPipe#(MAX_DEV_NUM)   mux     <- mkMuxPipeline1024;
+//     let arbiter   <- mkFixedPriorityArbiterPipeline1024;
+//     DeMux#(MAX_DEV_NUM, PhyId, PhyEvent)  demux <- mkMuxPipeline1024;
 
 //     rule getArbitResult;
 //         let grantId = arbiter.grantId;

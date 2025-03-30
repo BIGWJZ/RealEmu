@@ -21,25 +21,26 @@ import GetPut::*;
 import Types::*;
 
 interface PhyCore;
-    interface MacTxSrv lowMacTxSrv;
-    interface MacRxClt lowMacRxClt;
+    interface MacSrv lowMacTxSrv;
+    interface MacClt lowMacRxClt;
 
-    interface PhyRxSrv phyRxSrv;
-    interface PhyTxSrv phyTxClt;
+    interface PhySrv phyRxSrv;
+    interface PhyClt phyTxClt;
 
     interface PhyCfgSrv configSrv;
 endinterface
 
-module mkPhy11A(PhyCore);
-    FIFO#(MacTxReq)  lowMacTxReqQ   <- mkFIFO;
-    FIFO#(MacTxResp) lowMacTxRespQ  <- mkFIFO;
-    FIFO#(MacRxReq)  lowMacRxReqQ   <- mkFIFO;
-    FIFO#(MacRxResp) lowMacRxRespQ  <- mkFIFO;
+(* synthesize *)
+module mkPhyYansWifi#(Integer id)(PhyCore);
+    FIFO#(MacEvent)    lowMacTxReqQ   <- mkFIFO;
+    FIFO#(GenericResp) lowMacTxRespQ  <- mkFIFO;
+    FIFO#(MacEvent)    lowMacRxReqQ   <- mkFIFO;
+    FIFO#(GenericResp) lowMacRxRespQ  <- mkFIFO;
 
-    FIFO#(PhyTxReq)  phyTxReqQ      <- mkFIFO;
-    FIFO#(PhyTxResp) phyTxRespQ     <- mkFIFO;
-    FIFO#(PhyRxReq)  phyRxReqQ      <- mkFIFO;
-    FIFO#(PhyRxResp) phyRxRespQ     <- mkFIFO;
+    FIFO#(PhyEvent)    phyTxReqQ      <- mkFIFO;
+    FIFO#(GenericResp) phyTxRespQ     <- mkFIFO;
+    FIFO#(PhyEvent)    phyRxReqQ      <- mkFIFO;
+    FIFO#(GenericResp) phyRxRespQ     <- mkFIFO;
 
 
 
@@ -48,19 +49,5 @@ module mkPhy11A(PhyCore);
 
     interface phyTxClt    = toGPClient(phyTxReqQ, phyTxRespQ);
     interface phyRxSrv    = toGPServer(phyRxReqQ, phyRxRespQ);
-
-endmodule
-
-
-module mkPhy11B(PhyCore);
-
-endmodule
-
-
-module mkPhy11N(PhyCore);
-
-endmodule
-
-module mkPhy11AX(PhyCore);
 
 endmodule

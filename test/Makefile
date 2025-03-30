@@ -1,7 +1,7 @@
 include ../Makefile.base
 
-TESTFILE ?= TestDemux.bsv
-TOPMODULE ?= mkTestDemuxPipe
+TESTFILE ?= TestMac.bsv
+TOPMODULE ?= mkTestMacSimpleOnce
 
 SCRIPT_DIR = ../scripts
 DIR_BSV_GENERATED ?= $(BUILDDIR)

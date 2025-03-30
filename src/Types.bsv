@@ -24,6 +24,8 @@ typedef 10 DEV_ID_WIDTH;
 typedef 16 POWER_DB_WIDTH;  // (-128~127 dbm) * 256 = -32768~32767
 typedef 8  POWER_DB_SHIFT_WIDTH; // 2^8 = 256
 typedef 32 MPDU_LEN_WIDTH;
+typedef 2  FC_TYPE_WIDTH;
+typedef 4  FC_SUB_WIDTH;
 typedef 16 FC_WIDTH;
 typedef 16 DI_WIDTH;
 
@@ -38,14 +40,110 @@ typedef enum {
     WIFI_11AX = 3
 }WifiProtocol deriving(Bits, Bounded, FShow);
 
+// ============================ 802.11 MAC Types ==============================
+
 typedef Bit#(DEV_ID_WIDTH)    MacId;
 typedef Int#(POWER_DB_WIDTH)  PowerDb;  // (-128~127 dbm) * 256 = -32768~32767
-typedef Bit#(FC_WIDTH)        FrameCtl;
+typedef Bit#(FC_TYPE_WIDTH)   FrameType;
+typedef Bit#(FC_SUB_WIDTH)    FrameSubType;
 typedef Bit#(DI_WIDTH)        Duration;
 typedef Bit#(MPDU_LEN_WIDTH)  MpduLen;
 typedef Bit#(HOST_ADDR_WIDTH) MpduCacheAddr;
 
+// 802.11 Frame Type
+typedef 2'b00 FC_TYPE_MANAGEMENT;
+typedef 2'b01 FC_TYPE_CONTROL;
+typedef 2'b10 FC_TYPE_DATA;
+
+// 802.11 Control Frame SubType
+typedef 4'b1101 FC_CTRLSUB_ACK;
+typedef 4'b1011 FC_CTRLSUB_RTS;
+typedef 4'b1100 FC_CTRLSUB_CTS;
+
 typedef Bit#(MCS_WIDRH) Mcs;
+
+typedef 16 CW_WIDTH;
+typedef Bit#(CW_WIDTH) ContWindow;
+typedef Bit#(TLog#(CW_WIDTH)) ContWindowExp;
+typedef Bit#(4) RetryTime;
+
+typedef 16 TIMEUS_WIDTH;
+typedef Bit#(TIMEUS_WIDTH) TimeUs;
+
+typedef 16 TIMESLOT_WIDTH;
+typedef Bit#(TIMESLOT_WIDTH) TimeSlot;
+
+// 802.11 Mac Coniguration
+typedef struct {
+    TimeUs          slot;
+    TimeUs          sifs;
+    TimeUs          difs;
+    TimeUs          eifs;
+    TimeUs          timeout;
+    ContWindowExp   cwMin;
+    ContWindowExp   cwMax;
+    MpduLen         rtsThreshold;
+    RetryTime       retryLimit;
+    Bool            navEn;
+    Bool            txopEn;
+    Bool            filterEn;
+}MacConfig deriving(Eq, Bits, Bounded, FShow);
+
+function MacConfig getDefaultMacCfg();
+    return MacConfig{
+        // 802.11a setting
+        slot: 9,
+        sifs: 16,
+        difs: 34,         
+        eifs: 94,
+        // default
+        timeout: 300,
+        retryLimit: 6,
+        rtsThreshold: 1400,
+        // exp value
+        cwMin: 4,  //15
+        cwMax: 10, //1023
+        // enable
+        filterEn: True,
+        txopEn: False, // not supported yet
+        navEn: True
+    };
+endfunction
+
+// Csma FSM Staus
+typedef enum{
+    CSMA_IDLE,
+    CSMA_BACKOFF_IFS,
+    CSMA_BACKOFF,
+    CSMA_SUSPEND,
+    CSMA_BUSY,
+    CSMA_DONE
+}CsmaState deriving(Eq, Bits, FShow); 
+
+// DCF FSM Status
+typedef enum {
+    DCF_IDLE,
+    DCF_WAIT_BACKOFF,
+    DCF_RECV_CTSACK
+} DcfState deriving (Bits, Eq, FShow);
+
+typedef enum {
+    NT_IDLE,
+    // Send Logic
+    NT_SEND_RTS,
+    NT_RECV_CTS,
+    NT_SEND_DATA,
+    NT_RECV_ACK,
+    // Recv Logic
+    NT_SEND_CTS,
+    NT_RECV_DATA,
+    NT_SEND_ACK
+} DcfNextTask deriving(Eq, Bits, FShow); 
+
+typedef struct {
+    CsmaState backOffState;
+    DcfState dcfState;
+}MacStatus deriving(Eq, Bits, FShow);
 
 typedef struct {
     PowerDb power;
@@ -58,7 +156,8 @@ endfunction
 
 typedef struct {
     // Mac Header
-    FrameCtl frameControl;
+    FrameType frameType;
+    FrameSubType frameSubType;
     Duration duration;
     // For sw operation
     MpduLen  length;
@@ -66,81 +165,42 @@ typedef struct {
 } MpduDigest deriving(Eq, Bits, Bounded, FShow);
 
 function MpduDigest getEmptyMpduDigest();
-    return MpduDigest{frameControl: 0, duration: 0, length: 0, cacheAddr: 0};
+    return MpduDigest{frameType: 0, frameSubType: 0, duration: 0, length: 0, cacheAddr: 0};
 endfunction
 
-// Emulation Info Event, a digest of 802.11 MPDU from upper nodes
+// A digest of 802.11 MPDU from upper nodes
 typedef struct {
     // Translated from Mac Addr to Id by driver
     MacId srcMacId;
     MacId dstMacId;
-    // Extra Param
-    Bool    hasRfParam;
+    // RF Parameter
     RfParam rfParam;
+    // Mpdu Digest
     MpduDigest mpduDigest;
-}EmuInfoEvent deriving(Eq, Bits, Bounded, FShow);
+    // Event Status
+    Bool status;
+}MacEvent deriving(Eq, Bits, Bounded, FShow);
 
-function EmuInfoEvent getEmptyEmuInfoEvent();
-    return EmuInfoEvent{
+function MacEvent getEmptyMacEvent();
+    return MacEvent{
         srcMacId  : 0, 
         dstMacId  : 0, 
-        hasRfParam: False, 
         rfParam   : getEmptyRfParam, 
-        mpduDigest: getEmptyMpduDigest
+        mpduDigest: getEmptyMpduDigest,
+        status    : False
     };
 endfunction
 
-typedef enum {
-    COPY,
-    DESTROY
-}ScheOpCode deriving(Eq, Bits, Bounded, FShow);
-
-// Emulation Schedule Event, a indicatior for software operation
 typedef struct {
-    MacId srcMacId;
-    MacId dstMacId;
-    MpduLen mpduLen;
-    MpduCacheAddr mpduCacheAddr;
-    ScheOpCode opCode;
-}EmuScheEvent deriving(Eq, Bits, Bounded, FShow);
+} GenericResp deriving(Eq, Bits, Bounded, FShow);
+
+typedef Server#(MacEvent, GenericResp) MacSrv;
+typedef Client#(MacEvent, GenericResp) MacClt;
+
+typedef 200 US_CYCLES;
 
 
-// Low-Mac Core meta input&output, from High-Mac
-typedef EmuInfoEvent MacTxReq;
-typedef struct {
-} MacTxResp deriving(Eq, Bits, Bounded, FShow);
-typedef EmuScheEvent MacRxReq;
-typedef struct {
-} MacRxResp deriving(Eq, Bits, Bounded, FShow);
-
-typedef Server#(MacTxReq, MacTxResp) MacTxSrv;
-typedef Client#(MacTxReq, MacTxResp) MacTxClt;
-
-typedef Server#(MacRxReq, MacRxResp) MacRxSrv;
-typedef Client#(MacRxReq, MacRxResp) MacRxClt;
-
-typedef 16 CW_WIDTH;
-typedef Bit#(CW_WIDTH) ContWindow;
-typedef Bit#(4) RetryTime;
-
-typedef struct {
-    ContWindow cwMin;
-    ContWindow cwMax;
-    RetryTime  retryLimit;
-    Bool       navEn;
-    Bool       txopEn;
-    Bool       filterEn;
-}MacConfig deriving(Eq, Bits, Bounded, FShow);
-
-typedef struct {
-
-}MacStatus deriving(Eq, Bits, Bounded, FShow);
-
-typedef MacConfig MacCfgReq;
-typedef MacStatus MacCfgResp;
-
-
-// Phy sturctures
+// ========================================= Phy Types ====================================
 typedef 16 RSSI_WIDTH;
 typedef Bit#(RSSI_WIDTH) RSSI;
 
@@ -149,55 +209,50 @@ typedef Bit#(32) PpduLen;
 
 typedef MacId PhyId;
 
+// TODO: 彭思洲根据需要修改
 typedef enum {
     S_Idle,
     S_SyncWindow,
     S_Decoding,
     S_Busy,
     S_AssertTrans
-}PhyRxFsmState deriving(Eq, Bits, Bounded, FShow);
+}PhyFsmState deriving(Eq, Bits, Bounded, FShow);
+
+// For Mac
+typedef struct {
+    Bool cca;
+    Bool fcsCorrect;
+}PhyStatus deriving(Eq, Bits, Bounded, FShow);
 
 typedef struct {
     RSSI rssi;
     PowerDb rxPower;
     Bool cca;
-    Bool isTxing;
-    PhyRxFsmState state;
-}PhyFSM deriving(Eq, Bits, Bounded, FShow);
+    Bool fcsCorrect;
+    PhyFsmState state;
+}PhyFullStatus deriving(Eq, Bits, Bounded, FShow);
 
 typedef struct {
-}PhyTxResp deriving(Eq, Bits, Bounded, FShow);
-
-typedef struct {
-    PhyId srcId;
-    PhyId dstId;
+    PhyId srcPhyId;
+    PhyId dstPhyId;
     RfParam rfParam;
     PpduLen ppduLen;
     MpduDigest mpduDigest;
-}PhyTxReq deriving(Eq, Bits, Bounded, FShow);
+}PhyEvent deriving(Eq, Bits, Bounded, FShow);
 
-function PhyTxReq getEmptyPhyReq();
-    return PhyTxReq{
-        srcId  : 0, 
-        dstId  : 0, 
-        rfParam: getEmptyRfParam, 
-        ppduLen: 0, 
+function PhyEvent getEmptyPhyEvent();
+    return PhyEvent{
+        srcPhyId  : 0, 
+        dstPhyId  : 0, 
+        rfParam   : getEmptyRfParam, 
+        ppduLen   : 0, 
         mpduDigest: getEmptyMpduDigest};
 endfunction
 
-typedef struct {
-}PhyRxResp deriving(Eq, Bits, Bounded, FShow);
+typedef Server#(PhyEvent, GenericResp) PhySrv;
+typedef Client#(PhyEvent, GenericResp) PhyClt;
 
-typedef PhyTxReq PhyRxReq;
-
-typedef Server#(PhyTxReq, PhyTxResp) PhyTxSrv;
-typedef Client#(PhyTxReq, PhyTxResp) PhyTxClt;
-
-typedef Server#(PhyRxReq, PhyRxResp) PhyRxSrv;
-typedef Client#(PhyRxReq, PhyRxResp) PhyRxClt;
-
-
-// Channel Types
+// ======================================== Channel Types ====================================
 
 typedef 16 DISTANCE_WIDTH;
 typedef Bit#(DISTANCE_WIDTH) NodeDistance;
