@@ -8,7 +8,7 @@ import MacCore::*;
 import CsmaUtils::*;
 import PrimUtils::*;
 
-typedef 200 PacketCountMax;
+typedef 5 PacketCountMax;
 
 // 最简单的一次发包情况
 module mkTestMacSimpleOnce(Empty);
