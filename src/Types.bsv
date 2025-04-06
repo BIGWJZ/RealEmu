@@ -154,6 +154,10 @@ function RfParam getEmptyRfParam();
     return RfParam{power: 0, mcs: 0};
 endfunction
 
+function RfParam getDefaultRfParam(); // 包能被感应到
+    return RfParam{power: 31*32, mcs: 0};
+endfunction
+
 typedef struct {
     // Mac Header
     FrameType frameType;
@@ -186,6 +190,16 @@ function MacEvent getEmptyMacEvent();
         srcMacId  : 0, 
         dstMacId  : 0, 
         rfParam   : getEmptyRfParam, 
+        mpduDigest: getEmptyMpduDigest,
+        status    : False
+    };
+endfunction
+
+function MacEvent getDefaultMacEvent();
+    return MacEvent{
+        srcMacId  : 0, 
+        dstMacId  : 0, 
+        rfParam   : getDefaultRfParam, 
         mpduDigest: getEmptyMpduDigest,
         status    : False
     };

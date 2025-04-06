@@ -40,6 +40,10 @@ interface PhyCore;
 
     interface PhySrv phyRxSrv;
     interface PhyClt phyTxClt;
+
+    //interface PhyCfgSrv configSrv;
+
+    method Bool getCcaStatus;
 endinterface
 
 
@@ -47,8 +51,7 @@ endinterface
 /// Int#(12) powerdB Q6.5       UInt#(32) powerLinear U24.8
 ///============================================================================
 (* synthesize *)
-module mkPhyYansWifi(PhyCore); 
-
+module mkPhyYansWifi(PhyCore);
     FIFOF#(MacEvent)    lowMacTxReqQ      <- mkFIFOF;
     FIFOF#(GenericResp) lowMacTxRespQ     <- mkFIFOF;
     FIFOF#(MacEvent)    lowMacRxReqQ      <- mkFIFOF;
@@ -251,7 +254,6 @@ module mkPhyYansWifi(PhyCore);
         psduTimeValidWire   <= True;
      endrule
 
-
     //---------------------------
     // stateReg
     //---------------------------
@@ -364,17 +366,17 @@ module mkPhyYansWifi(PhyCore);
     //---------------------------
     RandI#(16) randGen <- mkRn_16;
 
+
     rule getRand;
         let tmpRand    <- randGen.get();  
         randomValueReg <= tmpRand;
     endrule
 
-
     //---------------------------
     // ROM
     //---------------------------
-    Rom1port#(UInt#(12),UInt#(32)) rom1 <- mkSingleRom("/home/psz/RealEmu/mem/Lg.mem");
-    Rom1port#(UInt#(14),UInt#(16)) rom2 <- mkSingleRom("/home/psz/RealEmu/mem/Per.mem");
+    Rom1port#(UInt#(12),UInt#(32)) rom1 <- mkSingleRom("Lg.mem");
+    Rom1port#(UInt#(14),UInt#(16)) rom2 <- mkSingleRom("Per.mem");
 
     rule putAddr1 if ((stateReg == PHY_SYNC || stateReg == PHY_RX) && rxValidReg);
         UInt#(12) addr1 = unpack(pack(rxPowerReg + 2047 + 1));
@@ -400,7 +402,9 @@ module mkPhyYansWifi(PhyCore);
             addr2 = zeroExtend(sinrAddr);
         end
         rom2.request.put(addr2);
-        $display("SINR: %0d ", (currentPowerReg - powerdBWire)>>5);
+
+        $display("SINR: %0d ", (currentPowerReg - powerdBWire) >> 5);
+
     endrule
 
 
@@ -480,7 +484,10 @@ module mkPhyYansWifi(PhyCore);
 
     interface phyTxClt    = toGPClient(phyTxReqQ, phyTxRespQ);
     interface phyRxSrv    = toGPServer(phyRxReqQ, phyRxRespQ);
-
+    
+    method Bool getCcaStatus;
+        return ccaBusyWire;
+    endmethod
 endmodule
 
 
@@ -494,7 +501,125 @@ endinterface
 
 module mkBinarySearch(BinarySearchIFC);
     // ROM接口
-    Rom1port#(UInt#(12), UInt#(32)) rom3 <- mkSingleRom("/home/psz/RealEmu/mem/Lg.mem");
+    Rom1port#(UInt#(12), UInt#(32)) rom3 <- mkSingleRom("Lg.mem");
+    
+    // 状态寄存器
+    Reg#(UInt#(12))  lowReg         <- mkReg(0);
+    Reg#(UInt#(12))  highReg        <- mkReg(4095);
+    Reg#(UInt#(32))  targetReg      <- mkReg(0);
+    Reg#(UInt#(12))  midReg         <- mkReg(0);  
+    Reg#(Bool)       searchingReg   <- mkReg(False);
+    Reg#(Bool)       searchWaitReg  <- mkReg(False);
+    Reg#(UInt#(6))   stepReg        <- mkReg(0);
+    
+    FIFO#(UInt#(32)) inputQ         <- mkFIFO;
+    FIFO#(UInt#(12)) outputQ        <- mkFIFO;
+
+    // 主状态机规则
+    rule startSearch (!searchingReg);
+        let target = inputQ.first;
+        inputQ.deq;
+        targetReg    <= target;
+        lowReg       <= 0;
+        highReg      <= 4095;
+        stepReg      <= 0;        
+        searchingReg <= True;
+    endrule
+
+    rule search (searchingReg && !searchWaitReg);
+        UInt#(12) mid   = (lowReg >> 1) + (highReg >> 1);
+        if (stepReg < 12) begin
+            rom3.request.put(mid);
+            searchWaitReg  <= True;
+            stepReg  <=  stepReg + 1;
+            midReg   <=  mid;
+        end 
+        else begin
+            stepReg <= 0;
+            outputQ.enq(mid);
+            searchingReg   <= False;
+        end
+    endrule
+
+    rule handleResponse (searchingReg && searchWaitReg);
+        let data <- rom3.response.get;
+        searchWaitReg  <= False;
+        if (data < targetReg) begin
+            lowReg  <= midReg + 1;
+        end 
+        else if(data > targetReg)begin
+            highReg  <= midReg - 1;
+        end else begin
+            // $display("equal");
+        end 
+    endrule
+
+    method Action put(UInt#(32) target);
+        inputQ.enq(target);
+    endmethod
+
+    method ActionValue#((Int#(12))) get;
+        let data = outputQ.first;
+        outputQ.deq;
+        Int#(12) res = unpack(pack(data - 2048));
+        return res;
+    endmethod
+
+endmodule
+
+
+
+// ================================== LFSR ==============================
+//export mkRn_16;
+// We want 16-bit random numbers, so we will use the 16-bit version of
+// LFSR and take the most significant eight bits.
+// The interface for the random number generator is parameterized on bit
+// length. It is a "get" interface, defined in the GetPut package.
+
+// interface LFSR #(type a_type);
+//     method Action seed(a_type seed_value);
+//     method a_type value();
+//     method Action next();
+// endinterface: LFSR
+    
+typedef Get#(Bit#(n)) RandI#(type n);
+module mkRn_16(RandI#(16));
+    // First we instantiate the LFSR module
+    LFSR#(Bit#(16)) lfsr <- mkLFSR_16 ;
+    // Next comes a FIFO for storing the results until needed
+    FIFO#(Bit#(16)) fi <- mkFIFO ;
+    // A boolean flag for ensuring that we first seed the LFSR module
+    Reg#(Bool) starting <- mkReg(True) ;
+    // This rule fires first, and sends a suitable seed to the module.
+    rule start (starting);
+        starting <= False;
+        lfsr.seed('h11);
+    endrule: start
+    // After that, the following rule runs as often as it can, retrieving
+    // results from the LFSR module and enqueing them on the FIFO.
+    rule run (!starting);
+        fi.enq(lfsr.value[15:0]);
+        lfsr.next;
+    endrule: run
+    // The interface for mkRn_6 is a Get interface. We can produce this from a
+    // FIFO using the fifoToGet function. We therefore don’t need to define any
+    // new methods explicitly in this module: we can simply return the produced
+    // Get interface as the "result" of this module instantiation.
+    return fifoToGet(fi);
+endmodule
+
+
+// ================================== BinarySearchIFC ==============================
+typedef 4096 ROM_SIZE;
+    
+interface BinarySearchIFC;
+    method Action put(UInt#(32) target);
+    method ActionValue#(Int#(12)) get;  // 修改返回类型
+endinterface
+
+module mkBinarySearch(BinarySearchIFC);
+    // ROM接口
+    Rom1port#(UInt#(12), UInt#(32)) rom3 <- mkSingleRom("Lg.mem");
     
     // 状态寄存器
     Reg#(UInt#(12))  lowReg         <- mkReg(0);
