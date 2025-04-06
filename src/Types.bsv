@@ -21,15 +21,15 @@ import ClientServer::*;
 typedef 1024 MAX_DEV_NUM;
 
 typedef 10 DEV_ID_WIDTH;
-typedef 16 POWER_DB_WIDTH;  // (-128~127 dbm) * 256 = -32768~32767
+typedef 12 POWER_DB_WIDTH;  // (-128~127 dbm) * 256 = -32768~32767
 typedef 8  POWER_DB_SHIFT_WIDTH; // 2^8 = 256
-typedef 32 MPDU_LEN_WIDTH;
+typedef 16 MPDU_LEN_WIDTH;
 typedef 2  FC_TYPE_WIDTH;
 typedef 4  FC_SUB_WIDTH;
 typedef 16 FC_WIDTH;
 typedef 16 DI_WIDTH;
 
-typedef 5 MCS_WIDRH;
+typedef 4 MCS_WIDRH;
 
 typedef 64 HOST_ADDR_WIDTH;
 
@@ -204,18 +204,16 @@ typedef 200 US_CYCLES;
 typedef 16 RSSI_WIDTH;
 typedef Bit#(RSSI_WIDTH) RSSI;
 
-typedef 32 PPDU_LEN_WIDTH;
-typedef Bit#(32) PpduLen;
+typedef 16 PPDU_LEN_WIDTH;
+typedef Bit#(16) PpduLen;
 
 typedef MacId PhyId;
 
-// TODO: 彭思洲根据需要修改
 typedef enum {
-    S_Idle,
-    S_SyncWindow,
-    S_Decoding,
-    S_Busy,
-    S_AssertTrans
+    PHY_IDLE, 
+    PHY_TX, 
+    PHY_SYNC, 
+    PHY_RX
 }PhyFsmState deriving(Eq, Bits, Bounded, FShow);
 
 // For Mac
