@@ -43,7 +43,7 @@ interface PhyCore;
 
     //interface PhyCfgSrv configSrv;
 
-    method Bool getCcaStatus;
+    method PhyStatus getPhyStatus;
 endinterface
 
 
@@ -94,7 +94,7 @@ module mkPhyYansWifi(PhyCore);
     Wire#(Mcs)       tempMcsReg         <- mkDWire(0);
     
     Reg#(PhyFsmState)stateReg           <- mkReg(PHY_IDLE); 
-    Wire#(Bool)      ccaBusyWire        <- mkDWire(False); 
+    Wire#(Bool)      ccaBusyReg         <- mkDWire(False); 
     Reg#(Bool)       syncCrcReg         <- mkDReg(False);
     Reg#(Bool)       syncEndReg         <- mkDReg(False);
     Reg#(Bool)       crcReg             <- mkDReg(False);
@@ -172,7 +172,7 @@ module mkPhyYansWifi(PhyCore);
                 dstMacId  : currentDstipReg,
                 rfParam   : RfParam{power: currentPowerReg, mcs: currentMcsReg}, 
                 mpduDigest: currentMpduDigest,
-                status    : crcReg
+                status    : True
             }; 
             lowMacRxReqQ.enq(macRxpkt1);
             //lowMacRxRespQ.enq(GenericResp{});
@@ -182,7 +182,7 @@ module mkPhyYansWifi(PhyCore);
                 dstMacId  : currentDstipReg,
                 rfParam   : RfParam{power: currentPowerReg, mcs: currentMcsReg}, 
                 mpduDigest: currentMpduDigest,
-                status    : syncCrcReg
+                status    : True
             }; 
             lowMacRxReqQ.enq(macRxpkt2);
             //lowMacRxRespQ.enq(GenericResp{});
@@ -191,10 +191,10 @@ module mkPhyYansWifi(PhyCore);
 
 
     //---------------------------
-    //ccaBusyWire
+    //ccaBusyReg
     //---------------------------
-    rule updateCcaBusyWire;
-    	ccaBusyWire <= (ccaTimerReg > 0) || (stateReg == PHY_TX);
+    rule updateccaBusyReg;
+    	ccaBusyReg <= (ccaTimerReg > 0) || (stateReg == PHY_TX);
     	if (psduTimeValidWire) begin
             ccaTimerReg <= (ccaTimerReg > (psduTimeWire + syncTime)) ? (ccaTimerReg - 1) : (psduTimeWire + syncTime - 1);
         end 
@@ -330,7 +330,7 @@ module mkPhyYansWifi(PhyCore);
                         crcReg <= True;
                         $display("CRC OK");
                     end else begin
-                        crcReg <= True;
+                        crcReg <= False;
                         $display("CRC ERROR");
                     end
                 end
@@ -485,8 +485,11 @@ module mkPhyYansWifi(PhyCore);
     interface phyTxClt    = toGPClient(phyTxReqQ, phyTxRespQ);
     interface phyRxSrv    = toGPServer(phyRxReqQ, phyRxRespQ);
     
-    method Bool getCcaStatus;
-        return ccaBusyWire;
+    method PhyStatus getPhyStatus;
+        return PhyStatus {
+            cca         : ccaBusyReg,
+            fcsCorrect  : crcReg
+            };
     endmethod
 endmodule
 

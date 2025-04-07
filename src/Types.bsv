@@ -172,6 +172,11 @@ function MpduDigest getEmptyMpduDigest();
     return MpduDigest{frameType: 0, frameSubType: 0, duration: 0, length: 0, cacheAddr: 0};
 endfunction
 
+function MpduDigest getDefaultMpduDigest();
+    return MpduDigest{frameType: 0, frameSubType: 0, duration: 20, length: 0, cacheAddr: 0};
+endfunction
+
+
 // A digest of 802.11 MPDU from upper nodes
 typedef struct {
     // Translated from Mac Addr to Id by driver
@@ -200,7 +205,7 @@ function MacEvent getDefaultMacEvent();
         srcMacId  : 0, 
         dstMacId  : 0, 
         rfParam   : getDefaultRfParam, 
-        mpduDigest: getEmptyMpduDigest,
+        mpduDigest: getDefaultMpduDigest,
         status    : False
     };
 endfunction
