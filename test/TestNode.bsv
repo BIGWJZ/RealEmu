@@ -57,15 +57,12 @@ module mkTestOneNode(Empty);
 
     // 请添加测试rule
     rule updatePhyStatus;
-        // 获取 PhyCore 的 CCA 状态
-        Bool cca0 = phy0.getCcaStatus;
-        Bool cca1 = phy1.getCcaStatus;
+        // 获取 PhyCore 的状态
+        let phyStatus0 = phy0.getPhyStatus;
+        let phyStatus1 = phy1.getPhyStatus;
 
-        PhyStatus phyStatusReg0 = PhyStatus{cca: cca0, fcsCorrect: True};
-        PhyStatus phyStatusReg1 = PhyStatus{cca: cca1, fcsCorrect: True};
-
-        mac0.phyStatus.put(phyStatusReg0);
-        mac1.phyStatus.put(phyStatusReg1);
+        mac0.phyStatus.put(phyStatus0);
+        mac1.phyStatus.put(phyStatus1);
     endrule
 
     rule handshake0;
