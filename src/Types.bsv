@@ -79,6 +79,10 @@ typedef struct {
     TimeUs          sifs;
     TimeUs          difs;
     TimeUs          eifs;
+    TimeUs          sigTime;
+    TimeUs          ofdmSymbolTime;
+    TimeUs          maxNum;
+    TimeUs          phyDelayTime;
     TimeUs          timeout;
     ContWindowExp   cwMin;
     ContWindowExp   cwMax;
@@ -96,6 +100,10 @@ function MacConfig getDefaultMacCfg();
         sifs: 16,
         difs: 34,         
         eifs: 94,
+        sigTime: 20,
+        ofdmSymbolTime: 4,
+        maxNum: 6,
+        phyDelayTime: 25,
         // default
         timeout: 300,
         retryLimit: 6,

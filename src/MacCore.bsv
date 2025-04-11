@@ -135,17 +135,15 @@ module mkNav#(
     endrule
 
     method Action handleFrame(MacEvent frame);
-        Duration timeoutThresholdReg = zeroExtend(2 * macCfg.sifs + 2 * macCfg.slot + 999); //为了测试用随便暂定的
-        if (!isMyFrame(id, frame.dstMacId) && isRtsFrame(frame.mpduDigest)) begin
-            // 处理Duration字段
-            if (frame.mpduDigest.duration[15] == 0) begin
-                $display("duration = %0d",frame.mpduDigest.duration[14:0]);
-                if(extend(frame.mpduDigest.duration[14:0]) > timeoutThresholdReg) begin
-                    newNavReg <= timeoutThresholdReg;
-                end
-                else begin
-                    newNavReg <= extend(frame.mpduDigest.duration[14:0]);
-                end
+        Duration timeoutThresholdReg = zeroExtend(2 * macCfg.sifs + 2 * macCfg.slot + macCfg.sigTime + macCfg.ofdmSymbolTime * macCfg.maxNum + macCfg.phyDelayTime); //参考openwifi
+        // 处理Duration字段
+        if (frame.mpduDigest.duration[15] == 0) begin
+            $display("duration = %0d",frame.mpduDigest.duration[14:0]);
+            if(zeroExtend(frame.mpduDigest.duration[14:0]) > timeoutThresholdReg) begin
+                newNavReg <= timeoutThresholdReg;
+            end
+            else begin
+                newNavReg <= zeroExtend(frame.mpduDigest.duration[14:0]);
             end
         end
     endmethod
@@ -161,18 +159,6 @@ module mkNav#(
     interface Put configure;
         method Action put(MacConfig cfg);
             macCfg <= cfg;
-            // 计算RTS超时阈值：2*SIFS + ACK/CTS时间 + PHY延迟 + 2*Slot 
-            // openwifi: nav_reset_timeout_top_after_rts<=(2*sifs_time + ackcts_time + phy_rx_start_delay_time + 2*slot_time);
-            // ackcts_time = preamble_sig_time + ofdm_symbol_time*ackcts_n_sym;
-            // ofdm_symbol_time =        (slv_reg9[31]?slv_reg9[23:19]:4);
-            // preamble_sig_time =       (slv_reg9[31]?slv_reg9[30:24]:20);
-            // phy_rx_start_delay_time = (slv_reg9[31]?slv_reg9[6:0]  :(band==1?24:25)); //802.11-2012. Table 19-8—ERP characteristics
-            /*
-            timeoutThresholdReg <= zeroExtend(2*cfg.sifs + 
-                                 calcAckCtsTime(cfg) + 
-                                 phyRxDelay + 
-                                 2*cfg.slot)；
-            */
         endmethod
     endinterface
 endmodule
@@ -261,9 +247,9 @@ module mkCsmaCaBackOff#(
                         // 需要进行指数增长随机退避
                         if (isExpBackOffReg) begin
                             csmaStateReg <= CSMA_BACKOFF;
-                            immLog("mkCsmaCaBackOff", "csmaFSM", $format("Id %5d, Enter ExpWindow BackOff", id));
                             let randWaitTime <- expBackOffGen.next.get;
                             waitTimeReg <= randWaitTime;
+                            immLog("mkCsmaCaBackOff", "csmaFSM", $format("Id %5d, Enter ExpWindow BackOff, randWaitTime = ", id, randWaitTime));
                         end
                         // 只进行IFS退避，无需进行随机退避
                         else begin
@@ -364,7 +350,6 @@ module mkCsmaCaBackOff#(
 endmodule
 
 // 802.11 DCF Low Mac Layer
-// TODO: (1) NAV
 (* always_enabled = "phyStatus.put" *)
 module mkMacDCF#(Integer id)(MacCore);
     FIFOF#(MacEvent)    highMacTxReqQ  <- mkFIFOF;
@@ -411,7 +396,6 @@ module mkMacDCF#(Integer id)(MacCore);
             // Phy->lowMac接收队列非空, 进入接收处理逻辑
             if (lowMacRxReqQ.notEmpty) begin
                 let rxReq = lowMacRxReqQ.first;
-                navController.handleFrame(rxReq);       //新增nav逻辑
                 if (isMyFrame(id, rxReq.dstMacId) && isDataFrame(rxReq.mpduDigest)) begin
                     // 收到Data帧，需要回复ACK，先退避SIFS
                     nextTask = NT_SEND_ACK;
@@ -428,11 +412,16 @@ module mkMacDCF#(Integer id)(MacCore);
                     backOffFsm.start(tuple2(True, False)); //SIFS 
                     immLog("mkMacDcf", "dcfFSM", $format("Id %5d, Receive RTS", id));
                 end
-                else begin
-                    // 直接丢弃 TODO: 处理广播帧与NAV
+                else if (!isMyFrame(id, rxReq.dstMacId) && isRtsFrame(rxReq.mpduDigest)) begin
+                    navController.handleFrame(rxReq);       //新增nav逻辑
                     lowMacRxReqQ.deq;
                     lowMacRxRespQ.enq(GenericResp{});
-                    // else do nothing. maybe need NAV process here.
+                end
+                else begin
+                    // 直接丢弃
+                    lowMacRxReqQ.deq;
+                    lowMacRxRespQ.enq(GenericResp{});
+                    // else do nothing.
                 end
             end
             // highMac->lowMac发送队列非空，进入发送处理逻辑，可能需要发送Data或者RTS

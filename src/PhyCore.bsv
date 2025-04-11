@@ -32,6 +32,7 @@ import Divide::*;
 
 import ROM::*;
 import Types::*;
+import PrimUtils::*;
 
 
 interface PhyCore;
@@ -50,8 +51,8 @@ endinterface
 ///============================= phyState =====================================
 /// Int#(12) powerdB Q6.5       UInt#(32) powerLinear U24.8
 ///============================================================================
-(* synthesize *)
-module mkPhyYansWifi(PhyCore);
+//(* synthesize *)
+module mkPhyYansWifi#(Integer id)(PhyCore);
     FIFOF#(MacEvent)    lowMacTxReqQ      <- mkFIFOF;
     FIFOF#(GenericResp) lowMacTxRespQ     <- mkFIFOF;
     FIFOF#(MacEvent)    lowMacRxReqQ      <- mkFIFOF;
@@ -176,6 +177,7 @@ module mkPhyYansWifi(PhyCore);
             }; 
             lowMacRxReqQ.enq(macRxpkt1);
             //lowMacRxRespQ.enq(GenericResp{});
+            /*  同步后的结果不传入MAC，否则会导致lowMacRxReqQ被enq两次，产生错误的结果
         end else if(syncEndReg)begin
             MacEvent macRxpkt2 = MacEvent{
                 srcMacId  : currentSrcipReg,
@@ -185,7 +187,7 @@ module mkPhyYansWifi(PhyCore);
                 status    : True
             }; 
             lowMacRxReqQ.enq(macRxpkt2);
-            //lowMacRxRespQ.enq(GenericResp{});
+            //lowMacRxRespQ.enq(GenericResp{});*/
         end
     endrule
 
@@ -243,7 +245,8 @@ module mkPhyYansWifi(PhyCore);
         else if(rxValidReg) begin
             UInt#(20) aligned_dividend = zeroExtend(rxLenReg) << 3; 
             divider.request.put(tuple2(aligned_dividend, ndbpsWire));
-            $display("PHY_RX EVENT");
+            //immLog("mkPhyYansWifi", "feed_operation", $format("Id %5d, Phy Rx Event", id));
+            //$display("PHY_RX EVENT");
         end
     endrule
 
@@ -270,7 +273,8 @@ module mkPhyYansWifi(PhyCore);
                     currentMcsReg   <= txMcsReg;
                     currentPowerReg <= txPowerReg;
                     currentLenReg   <= txLenReg;
-                    $display("PHY_TX start");
+                    //$display("PHY_TX start");
+                    //immLog("mkPhyYansWifi", "handlePhyState", $format("Id %5d, Phy Tx Start", id));
                 end
                 else if (rxValidReg && (rxPowerReg > threash)) begin
                     // 进入同步状态
@@ -283,7 +287,8 @@ module mkPhyYansWifi(PhyCore);
                     currentPowerReg <= rxPowerReg;
                     currentLenReg   <= rxLenReg;
                     currentMpduDigest <= rxMpduDigest;
-                    $display("PHY_SYNC start, power:%d",rxPowerReg);
+                    //$display("PHY_SYNC start, power:%d",rxPowerReg);
+                    //immLog("mkPhyYansWifi", "handlePhyState", $format("Id %5d, Phy Sync Start,power: %0d", id, rxPowerReg));
                 end
             end
     
@@ -297,7 +302,8 @@ module mkPhyYansWifi(PhyCore);
                 if (rxBeginReg && psduTimeValidWire) begin
                     rxTimerReg <= psduTimeWire;
                     rxBeginReg <= False;
-                    $display("psdu data time: %0d (clk)", psduTimeWire);
+                    //$display("psdu data time: %0d (clk)", psduTimeWire);
+                    //immLog("mkPhyYansWifi", "handlePhyState", $format("Id %5d, psdu data time: %0d (clk)", id, psduTimeWire));
                 end
     
                 // 同步结果判断
@@ -306,12 +312,14 @@ module mkPhyYansWifi(PhyCore);
                     if (perWire >= unpack(randomValueReg)) begin
                         stateReg    <= PHY_RX;
                         syncCrcReg  <= True;
-                        $display("PHY_SYNC OK, start PHY_RX");
+                        //$display("PHY_SYNC OK, start PHY_RX");
+                        //immLog("mkPhyYansWifi", "handlePhyState", $format("Id %5d, Phy Sync OK, start Phy Rx", id));
                     end 
                     else begin
                         stateReg    <= PHY_IDLE;
                         syncCrcReg  <= False;
-                        $display("PHY_SYNC ERROR, PHY_IDLE");
+                        //$display("PHY_SYNC ERROR, PHY_IDLE");
+                        //immLog("mkPhyYansWifi", "handlePhyState", $format("Id %5d, Phy Sync Error", id));
                     end
                 end
             end
@@ -328,10 +336,12 @@ module mkPhyYansWifi(PhyCore);
                     rxEndReg <= True;
                     if(perWire >= unpack(randomValueReg))begin
                         crcReg <= True;
-                        $display("CRC OK");
+                        //$display("CRC OK");
+                        //immLog("mkPhyYansWifi", "handlePhyState", $format("Id %5d, CRC OK", id));
                     end else begin
                         crcReg <= False;
-                        $display("CRC ERROR");
+                        //$display("CRC ERROR");
+                        //immLog("mkPhyYansWifi", "handlePhyState", $format("Id %5d, CRC Error", id));
                     end
                 end
             end
@@ -341,7 +351,8 @@ module mkPhyYansWifi(PhyCore);
                 if (txBeginReg && psduTimeValidWire) begin
                     txTimerReg <= txTimerReg + psduTimeWire - 1;
                     txBeginReg <= False;
-                    $display("tx time: %0d (clk)", syncTime + psduTimeWire);
+                    //$display("tx time: %0d (clk)", syncTime + psduTimeWire);
+                    //immLog("mkPhyYansWifi", "handlePhyState", $format("Id %5d, tx time: %0d (clk)", id, syncTime + psduTimeWire));
                 end 
                 else if (txTimerReg > 0) begin
                     txTimerReg <= txTimerReg - 1;
@@ -349,13 +360,15 @@ module mkPhyYansWifi(PhyCore);
                 else begin
                     stateReg <= PHY_IDLE;
                     txEndReg <= True;
-                    $display("PHY_TX END");
+                    //$display("PHY_TX END");
+                    //immLog("mkPhyYansWifi", "handlePhyState", $format("Id %5d, Phy Tx End", id));
                 end
             end
     
             default: begin
                 stateReg <= PHY_IDLE;  // 异常恢复
-                $display("Unknown state, reset to IDLE");
+                //$display("Unknown state, reset to IDLE");
+                //immLog("mkPhyYansWifi", "handlePhyState", $format("Id %5d, Unknown state, reset to IDLE", id));
             end
         endcase
     endrule
@@ -403,7 +416,8 @@ module mkPhyYansWifi(PhyCore);
         end
         rom2.request.put(addr2);
 
-        $display("SINR: %0d ", (currentPowerReg - powerdBWire) >> 5);
+        //$display("SINR: %0d ", (currentPowerReg - powerdBWire) >> 5);
+        //immLog("mkPhyYansWifi", "rom2Request", $format("Id %5d, SINR: %0d", id, (currentPowerReg - powerdBWire) >> 5));
 
     endrule
 
@@ -415,7 +429,8 @@ module mkPhyYansWifi(PhyCore);
         let tmpPer <- rom2.response.get;
         perWire <= tmpPer;
         perValidWire <= True;
-        $display("PER: %0d ", tmpPer);
+        //$display("PER: %0d ", tmpPer);
+        //immLog("mkPhyYansWifi", "let1", $format("Id %5d, PER: %0d", id, tmpPer));
     endrule
 
 
@@ -430,14 +445,16 @@ module mkPhyYansWifi(PhyCore);
     BinarySearchIFC searcher <- mkBinarySearch;
     rule feed_test((syncTimerReg == 100) || (rxTimerReg == 100));
         searcher.put(noiseSumReg);
-        $display("Binary searching %0d",noiseSumReg);
+        //$display("Binary searching %0d",noiseSumReg);
+        //immLog("mkPhyYansWifi", "feed_test", $format("Id %5d, Binary Searching %0d", id, noiseSumReg));
     endrule
 
     rule search_result;
         let res <- searcher.get;
         powerdBWire<= unpack(pack(res));
         powerdBValidWire <= True;
-        $display("Binary searched %0d",res);
+        //$display("Binary searched %0d",res);
+        //immLog("mkPhyYansWifi", "search_result", $format("Id %5d, Binary Searched %0d", id, res));
     endrule
 
 
@@ -447,7 +464,8 @@ module mkPhyYansWifi(PhyCore);
     rule rom1Get;
         let data <- rom1.response.get;
         currentReg <= data;
-        $display("max : %0d",data);
+        //$display("max : %0d",data);
+        //immLog("mkPhyYansWifi", "rom1Get", $format("Id %5d, max : %0d", id, data));
     endrule
 
     rule updateMaxpower((stateReg == PHY_SYNC) || (stateReg == PHY_RX)) ;
