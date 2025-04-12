@@ -103,6 +103,66 @@ module mkMacPipe#(Integer id)(MacCore);
     //interface configSrv    = toGPServer(configReqQ, configRespQ);
 endmodule
 
+// ============================= 802.11 NAV ==============================
+interface Nav_IFC;
+    method Action               handleFrame(MacEvent frame);        // 统一处理帧
+    method Action               resetNav();                         // 强制复位NAV
+    method Duration             getNavValue();                      // 获取当前NAV值
+    method Bool                 isNavWaiting();                     // NAV是否等待完成
+    interface Put#(MacConfig)   configure;                          // 配置参数
+endinterface
+
+module mkNav#(
+    TimeGen usGen,
+    Integer id            
+)(Nav_IFC);
+    // --------------------- 寄存器声明 ---------------------
+    Reg#(Duration)           navReg                  <- mkReg(0);
+    Reg#(Duration)           newNavReg               <- mkDReg(0);
+    Reg#(MacConfig)          macCfg                  <- mkReg(getDefaultMacCfg);
+    
+    // --------------------- 内部逻辑 ---------------------
+    // RTS超时检测以及等待nav
+    rule checkRtsTimeout;
+        if (usGen.get && navReg > newNavReg && navReg > 0) begin
+            navReg <= navReg - 1;
+            immLog("mkNav", "checkRtsTimeout" , $format("Node %0d: NAV decrease navReg = %0d", id , navReg));
+        end
+        else if (navReg < newNavReg)
+            navReg <= newNavReg;
+        else
+            navReg <= navReg;
+    endrule
+
+    method Action handleFrame(MacEvent frame);
+        Duration timeoutThresholdReg = zeroExtend(2 * macCfg.sifs + 2 * macCfg.slot + macCfg.sigTime + macCfg.ofdmSymbolTime * macCfg.maxNum + macCfg.phyDelayTime); //参考openwifi
+        // 处理Duration字段
+        if (frame.mpduDigest.duration[15] == 0) begin
+            $display("duration = %0d",frame.mpduDigest.duration[14:0]);
+            if(zeroExtend(frame.mpduDigest.duration[14:0]) > timeoutThresholdReg) begin
+                newNavReg <= timeoutThresholdReg;
+            end
+            else begin
+                newNavReg <= zeroExtend(frame.mpduDigest.duration[14:0]);
+            end
+        end
+    endmethod
+
+    method Action resetNav();
+        immLog("mkNav", "resetNav" , $format("Node %0d: Manual NAV reset", id));
+    endmethod
+
+    method Duration getNavValue() = navReg;
+    
+    method Bool isNavWaiting() = (navReg != 0);
+
+    interface Put configure;
+        method Action put(MacConfig cfg);
+            macCfg <= cfg;
+        endmethod
+    endinterface
+endmodule
+
 // ================================== 802.11 DCF MAC ================================
 
 interface CsmaBackOff_IFC;
@@ -136,6 +196,7 @@ module mkCsmaCaBackOff#(
     Reg#(Bool)       isExpBackOffReg        <- mkReg(False);  // Option2: IFS退避后是否需要随机退避
 
     let              expBackOffGen          <- mkExpBackoffGenerator;
+    let              navController          <- mkNav(usGen, id);
 
     rule csmaFSM;
 
@@ -146,7 +207,7 @@ module mkCsmaCaBackOff#(
                 isSendAllowReg <= False;
                 if (startReg) begin
                     waitTimeIFSReg <= isSifsReg ? macCfgReg.sifs : macCfgReg.difs;   // unit is us
-                    if (phyStatusWire.cca) begin
+                    if (phyStatusWire.cca || navController.isNavWaiting()) begin
                         csmaStateReg <= CSMA_BUSY;
                     end 
                     else begin
@@ -161,7 +222,7 @@ module mkCsmaCaBackOff#(
                 if (resetWire) begin
                     csmaStateReg <= CSMA_IDLE;
                 end
-                else if(!phyStatusWire.cca) begin
+                else if(!(phyStatusWire.cca || navController.isNavWaiting())) begin
                     if(phyStatusWire.fcsCorrect) begin
                         waitTimeIFSReg <= isSifsReg ? macCfgReg.sifs : macCfgReg.difs;
                     end
@@ -178,7 +239,7 @@ module mkCsmaCaBackOff#(
                 if (resetWire) begin
                     csmaStateReg <= CSMA_IDLE;
                 end
-                else if(phyStatusWire.cca) begin
+                else if(phyStatusWire.cca || navController.isNavWaiting()) begin
                     csmaStateReg <= CSMA_BUSY;
                 end
                 else begin
@@ -186,9 +247,9 @@ module mkCsmaCaBackOff#(
                         // 需要进行指数增长随机退避
                         if (isExpBackOffReg) begin
                             csmaStateReg <= CSMA_BACKOFF;
-                            immLog("mkCsmaCaBackOff", "csmaFSM", $format("Id %5d, Enter ExpWindow BackOff", id));
                             let randWaitTime <- expBackOffGen.next.get;
                             waitTimeReg <= randWaitTime;
+                            immLog("mkCsmaCaBackOff", "csmaFSM", $format("Id %5d, Enter ExpWindow BackOff, randWaitTime = ", id, randWaitTime));
                         end
                         // 只进行IFS退避，无需进行随机退避
                         else begin
@@ -208,7 +269,7 @@ module mkCsmaCaBackOff#(
                 if (resetWire) begin
                     csmaStateReg <= CSMA_IDLE;
                 end
-                else if(phyStatusWire.cca) begin
+                else if(phyStatusWire.cca || navController.isNavWaiting()) begin
                     csmaStateReg <= CSMA_SUSPEND;
                 end
                 else begin
@@ -228,7 +289,7 @@ module mkCsmaCaBackOff#(
                 if (resetWire) begin
                     csmaStateReg <= CSMA_IDLE;
                 end
-                else if(!phyStatusWire.cca) begin
+                else if(!(phyStatusWire.cca || navController.isNavWaiting())) begin
                     csmaStateReg <= CSMA_BACKOFF;
                 end
                 // else do nothing
@@ -289,7 +350,6 @@ module mkCsmaCaBackOff#(
 endmodule
 
 // 802.11 DCF Low Mac Layer
-// TODO: (1) NAV
 (* always_enabled = "phyStatus.put" *)
 module mkMacDCF#(Integer id)(MacCore);
     FIFOF#(MacEvent)    highMacTxReqQ  <- mkFIFOF;
@@ -319,6 +379,7 @@ module mkMacDCF#(Integer id)(MacCore);
 `endif
     TimeGen              slotGen            <- mkSlotGen(usGen, macCfgReg);
     let                  backOffFsm         <- mkCsmaCaBackOff(phyStatusWire, usGen, slotGen, id);
+    let                  navController      <- mkNav(usGen, id);
 
     rule phyHandShake;
         lowMacTxRespQ.deq;
@@ -351,11 +412,16 @@ module mkMacDCF#(Integer id)(MacCore);
                     backOffFsm.start(tuple2(True, False)); //SIFS 
                     immLog("mkMacDcf", "dcfFSM", $format("Id %5d, Receive RTS", id));
                 end
-                else begin
-                    // 直接丢弃 TODO: 处理广播帧与NAV
+                else if (!isMyFrame(id, rxReq.dstMacId) && isRtsFrame(rxReq.mpduDigest)) begin
+                    navController.handleFrame(rxReq);       //新增nav逻辑
                     lowMacRxReqQ.deq;
                     lowMacRxRespQ.enq(GenericResp{});
-                    // else do nothing. maybe need NAV process here.
+                end
+                else begin
+                    // 直接丢弃
+                    lowMacRxReqQ.deq;
+                    lowMacRxRespQ.enq(GenericResp{});
+                    // else do nothing.
                 end
             end
             // highMac->lowMac发送队列非空，进入发送处理逻辑，可能需要发送Data或者RTS

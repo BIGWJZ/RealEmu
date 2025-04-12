@@ -79,6 +79,10 @@ typedef struct {
     TimeUs          sifs;
     TimeUs          difs;
     TimeUs          eifs;
+    TimeUs          sigTime;
+    TimeUs          ofdmSymbolTime;
+    TimeUs          maxNum;
+    TimeUs          phyDelayTime;
     TimeUs          timeout;
     ContWindowExp   cwMin;
     ContWindowExp   cwMax;
@@ -96,6 +100,10 @@ function MacConfig getDefaultMacCfg();
         sifs: 16,
         difs: 34,         
         eifs: 94,
+        sigTime: 20,
+        ofdmSymbolTime: 4,
+        maxNum: 6,
+        phyDelayTime: 25,
         // default
         timeout: 300,
         retryLimit: 6,
@@ -172,6 +180,11 @@ function MpduDigest getEmptyMpduDigest();
     return MpduDigest{frameType: 0, frameSubType: 0, duration: 0, length: 0, cacheAddr: 0};
 endfunction
 
+function MpduDigest getDefaultMpduDigest();
+    return MpduDigest{frameType: 0, frameSubType: 0, duration: 20, length: 0, cacheAddr: 0};
+endfunction
+
+
 // A digest of 802.11 MPDU from upper nodes
 typedef struct {
     // Translated from Mac Addr to Id by driver
@@ -200,7 +213,7 @@ function MacEvent getDefaultMacEvent();
         srcMacId  : 0, 
         dstMacId  : 0, 
         rfParam   : getDefaultRfParam, 
-        mpduDigest: getEmptyMpduDigest,
+        mpduDigest: getDefaultMpduDigest,
         status    : False
     };
 endfunction
