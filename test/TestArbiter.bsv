@@ -1,127 +1,72 @@
-import Randomizable::*;
+import GetPut::*;
+import Connectable::*;
+import ClientServer::*;
 import Vector::*;
-import Arbiter::*;
 import FIFO::*;
+import MathUtils::*;
 
-import PrimUtils::*;
+
+import Types::*;
 import Arbitration::*;
+import Channel::*;
 
-typedef 32 TestPortSz;
-typedef 1000 TestNum;
+typedef 8 NodeNum;
+typedef 3 TreeDepth;
 
-function Tuple2#(Bit#(TLog#(portSz)), Vector#(portSz, Bool)) 
-    getIdealGrant(Vector#(portSz, Bool) reqVec);
-        Bit#(TLog#(portSz)) grantId = 0;
-        Vector#(portSz, Bool) grantVec = replicate(False);
-        for (Integer idx = valueOf(portSz)-1; idx >= 0; idx = idx - 1)
-            if (reqVec[idx]) 
-                grantId = fromInteger(idx);
-        grantVec[grantId] = True;
-        return tuple2(grantId, grantVec);
-    endfunction
+module mkTestArbiter(Empty);
+    //实例化仲裁器
+    ArbiterIFC arbiter <- mkArbiter;
+    
+    //创建节点模型
+    Vector#(NodeNum, GainLossModel) nodes <- replicateM(mkGainLossModelIdeal());
+    
+    //连接接口
+    for(Integer i = 0; i < valueOf(NodeNum); i = i + 1) begin
+        mkConnection(nodes[i].phyTxMetaClt, arbiter.phyRxMetaSrv[i]);
+        mkConnection(arbiter.phyTxMetaClt[i], nodes[i].phyRxMetaSrv);
+    end
 
-module mkTestFixedPriorityArbiter(Empty);
-    Arbiter_IFC#(TestPortSz) arbiter <- mkFixedPriorityArbiter;
+    Reg#(UInt#(64)) cycleCount <- mkReg(0);
 
-    Reg#(Bool) isInitReg <- mkReg(False);
-    Reg#(UInt#(32)) testNumReg <- mkReg(0);
-
-    Randomize#(Bit#(TestPortSz)) reqGen <- mkGenericRandomizer;
-
-    Wire#(Bit#(TLog#(TestPortSz)))   ideaIdWire  <- mkWire;
-    Wire#(Vector#(TestPortSz, Bool)) ideaVecWire <- mkWire;
-
-    rule testInit if (!isInitReg);
-        isInitReg <= True;
-        reqGen.cntrl.init;
+    rule updateclock;
+        cycleCount <= cycleCount + 1;
     endrule
 
-    rule testGen if (isInitReg && testNumReg < fromInteger(valueOf(TestNum)));
-        let reqBit <- reqGen.next;
-        Vector#(TestPortSz, Bool) reqVec = unpack(reqBit);
-        for(Integer idx = 0; idx < valueOf(TestPortSz); idx = idx + 1) begin
-            if (reqVec[idx])
-                arbiter.clients[idx].request;
+    // 测试案例1：基础仲裁
+    rule send1 if (cycleCount == 100);
+        $display("node0 1 tx");
+        PhyEvent event0 = getEmptyPhyEvent();
+        event0.srcPhyId = 0;
+        PhyEvent event1 = getEmptyPhyEvent();
+        event1.srcPhyId = 1;
+        nodes[0].phyTxSrv.request.put(event0);
+        nodes[1].phyTxSrv.request.put(event1);
+    endrule
+
+    rule send2 if (cycleCount == 200);
+        $display("node2 tx");
+        PhyEvent event2 = getEmptyPhyEvent();
+        event2.srcPhyId = 2;
+        nodes[2].phyTxSrv.request.put(event2);
+    endrule
+
+    rule send3 if (cycleCount == 500);
+        $display("all node tx");
+        Vector#(NodeNum, PhyEvent) events = replicate(getEmptyPhyEvent());
+        for(Integer j=0; j<valueOf(NodeNum); j=j+1) begin
+            events[j].srcPhyId = fromInteger(j);
+            nodes[j].phyTxSrv.request.put(events[j]);
         end
-        let {ideaId, ideaVec} = getIdealGrant(reqVec);
-        // $display("ideaId: %d", ideaId);
-        // $display("ideaVec: %b", ideaVec);
-        ideaIdWire <= ideaId;
-        ideaVecWire <= ideaVec;
     endrule
 
-    rule testAssert if (isInitReg && testNumReg < fromInteger(valueOf(TestNum)));
-        Vector#(TestPortSz, Bool) resultVec = replicate(False);
-        for(Integer idx = 0; idx < valueOf(TestPortSz); idx = idx + 1) begin
-            resultVec[idx] = arbiter.clients[idx].grant;
-        end
-        let resultId = arbiter.grant_id;
-        // $display("resultId: %d", resultId);
-        // $display("resultVec: %b", resultVec);
-        immAssert(
-            (ideaIdWire == resultId) && (resultVec == ideaVecWire),
-            "Fixed Priority Arbiter Test @ mkTestFixedPriorityArbiter",
-            $format("IdeaId=%d but resultId=%d", ideaIdWire, resultId)
-        );
-
-        testNumReg <= testNumReg + 1;
+    rule simEnd if(cycleCount == 1000);
+        $display("Test end");
+        $finish;
     endrule
 
-    rule stop if (testNumReg >= fromInteger(valueOf(TestNum)));
-        $display("Test Fixed Priority Arbiter Pass!\n");
-        $finish();
-    endrule
-endmodule
 
-typedef 1024 PipePortSz;
-
-module mkTestArbiterPipeLine(Empty);
-    let arbiter <- mkFixedPriorityArbiterPipeline1024;
-
-    Reg#(Bool) isInitReg <- mkReg(False);
-    Reg#(UInt#(32)) testNumReg <- mkReg(0);
-    Reg#(Bit#(6)) reqReg <- mkReg(0);
-
-    FIFO#(Tuple2#(Bit#(TLog#(PipePortSz)), Vector#(PipePortSz, Bool))) ideaResultQ <- mkFIFO;
-
-    Randomize#(Bit#(PipePortSz)) reqGen <- mkGenericRandomizer;
-
-    rule testInit if (!isInitReg);
-        isInitReg <= True;
-        reqGen.cntrl.init;
-    endrule
-
-    rule testGen if (isInitReg && testNumReg < fromInteger(valueOf(TestNum)));
-        let reqBit <- reqGen.next;
-        Vector#(PipePortSz, Bool) reqVec = unpack(reqBit);
-        for(Integer idx = 0; idx < valueOf(PipePortSz); idx = idx + 1) begin
-            if (reqVec[idx])
-                arbiter.clients[idx].request;
-        end
-        reqReg <= reqBit[5:0];
-        // let ideaResult = getIdealGrant(reqVec);
-        // ideaResultQ.enq(ideaResult);
-        testNumReg <= testNumReg + 1;
-    endrule
-
-    rule testAssert if (isInitReg && testNumReg < fromInteger(valueOf(TestNum)));
-        // let {ideaId, ideaVec} = ideaResultQ.first;
-        // ideaResultQ.deq;
-        Vector#(PipePortSz, Bool) resultVec = replicate(False);
-        for(Integer idx = 0; idx < valueOf(PipePortSz); idx = idx + 1) begin
-            resultVec[idx] = arbiter.clients[idx].grant;
-        end
-        let resultId = arbiter.grant_id;
-        $display("Id: ", resultId, ", req: %b", reqReg);
-        // immAssert(
-        //     (ideaId == resultId) && (resultVec == ideaVec),
-        //     "Fixed Priority Arbiter Test @ mkTestFixedPriorityArbiter",
-        //     $format("IdeaId=%d but resultId=%d", ideaId, resultId)
-        // );
-    endrule
-
-    rule stop if (testNumReg >= fromInteger(valueOf(TestNum)));
-        $display("Test Fixed Priority Arbiter Pass!\n");
-        $finish();
+    rule rx7;//node  7
+        let received <- nodes[7].phyRxClt.request.get;
+        $display("node7 receive from node%0d",received.srcPhyId);
     endrule
 endmodule

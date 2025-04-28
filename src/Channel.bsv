@@ -27,61 +27,79 @@ import Types::*;
 import MathUtils::*;
 import ROM::*;
 
-// Single path channel model
-interface GainLossModel;
-    interface PhyTxSrv phyTxMetaSrv;
-    interface PhyRxClt phyRxMetaClt;
-endinterface
-
-// Ideal Channel without any gain loss
-(* synthesize *)
-module mkGainLossModelIdeal(GainLossModel);
-    FIFO#(PhyTxReq)  txReqQ  <- mkFIFO;
-    FIFO#(PhyTxResp) txRespQ <- mkFIFO;
-    FIFO#(PhyRxReq)  rxReqQ  <- mkFIFO;
-    FIFO#(PhyRxResp) rxRespQ <- mkFIFO;
-
-    // forward the meta directly, do not modify power
-    rule forward;
-        rxReqQ.enq(txReqQ.first);
-        txReqQ.deq;
-        txRespQ.enq(PhyTxResp{});
-    endrule
-
-    rule handshake;
-        rxRespQ.deq;
-    endrule
-
-    interface phyTxMetaSrv = toGPServer(txReqQ, txRespQ);
-    interface phyRxMetaClt = toGPClient(rxReqQ, rxRespQ);
-endmodule
-
-
-typedef Bit#(TMul#(2, DEV_ID_WIDTH)) ChBramAddr;
-
-function ChBramAddr genChBramAddr(PhyId id0, PhyId id1);
-    return (zeroExtend(id0) << (valueOf(DEV_ID_WIDTH))) & zeroExtend(id1);
-endfunction
-
 typedef 5 FSModelPipeDepth;
 
 /* LogDistance Channel, gain loss ~ 20log(distance) between nodes
  * L = L0 + 10nlog((d)/(d0)), where d0 is set as 1m, n = 2 for free space case
  * L0 and d0 are read from system register block
  */
-module mkGainLossModelLogDistance#(
-    BRAM2Port#(ChBramAddr, NodeDistance) distanceRam2
-    // RegBlock regBlock                                   
-)(GainLossModel);
+
+ interface GainLossModel;
+    interface PhySrv phyTxSrv;
+    interface PhyClt phyRxClt; //与phy相连,tx直连 rx计算衰减
+
+    interface PhyClt phyTxMetaClt;
+    interface PhySrv phyRxMetaSrv; //与arbitration相连
+endinterface
+
+(* synthesize *)
+module mkGainLossModelIdeal(GainLossModel);
+    FIFO#(PhyEvent)    phyTxReqQ   <- mkFIFO;
+    FIFO#(GenericResp) phyTxRespQ  <- mkFIFO;
+    FIFO#(PhyEvent)    phyRxReqQ   <- mkFIFO;
+    FIFO#(GenericResp) phyRxRespQ  <- mkFIFO;
+
     FIFO#(PhyEvent)    txReqQ  <- mkFIFO;
     FIFO#(GenericResp) txRespQ <- mkFIFO;
     FIFO#(PhyEvent)    rxReqQ  <- mkFIFO;
     FIFO#(GenericResp) rxRespQ <- mkFIFO;
 
-    FIFO#(PhyEvent)     txPipeQ   <- mkSizedFIFO(valueOf(FSModelPipeDepth));
-    FIFO#(NodeDistance) distPipeQ <- mkSizedFIFO(valueOf(FSModelPipeDepth));  
+    rule phyTx;
+        let phyTxReq = phyTxReqQ.first;
+        phyTxReqQ.deq;
+        // phyTxRespQ.enq(GenericResp{});
+        txReqQ.enq(phyTxReq);
+    endrule
 
-    MathTable lossTable <- mkLogDistanceGainLossTable;
+    // forward the meta directly, do not modify power
+    rule forward;
+        let phyrxReq = rxReqQ.first;
+        rxReqQ.deq;
+        // rxRespQ.enq(GenericResp{});
+        phyRxReqQ.enq(phyrxReq);
+    endrule
+
+    // rule handshakeRx;
+    //     phyRxRespQ.deq;
+    // endrule
+
+    interface phyTxSrv    = toGPServer(phyTxReqQ, phyTxRespQ);
+    interface phyRxClt    = toGPClient(phyRxReqQ, phyRxRespQ);
+
+    interface phyTxMetaClt = toGPClient(txReqQ, txRespQ);
+    interface phyRxMetaSrv = toGPServer(rxReqQ, rxRespQ);
+endmodule
+
+
+module mkGainLossModelLogDistance#(
+    Integer id,
+    BRAM2Port#(portSz, NodeDistance) distanceRam2
+    // RegBlock regBlock                                   
+)(GainLossModel);
+    FIFO#(PhyEvent)    phyTxReqQ   <- mkFIFO;
+    FIFO#(GenericResp) phyTxRespQ  <- mkFIFO;
+    FIFO#(PhyEvent)    phyRxReqQ   <- mkFIFO;
+    FIFO#(GenericResp) phyRxRespQ  <- mkFIFO;
+
+    FIFO#(PhyEvent)    txReqQ  <- mkFIFO;
+    FIFO#(GenericResp) txRespQ <- mkFIFO;
+    FIFO#(PhyEvent)    rxReqQ  <- mkFIFO;
+    FIFO#(GenericResp) rxRespQ <- mkFIFO;
+
+    FIFO#(PhyEvent)    txPipeQ   <- mkSizedFIFO(valueOf(FSModelPipeDepth));
+    Rom1port#(NodeDistance,UInt#(12)) lossTable <- mkSingleRom("20lgd.mem");
+
+    //FIFO#(NodeDistance) distPipeQ <- mkSizedFIFO(valueOf(FSModelPipeDepth));  
 
     // ram的外部定义，需要暴露另一端口给DMA配置
     // BRAM2Port#(ChBramAddr, NodeDistance) distanceRam2 <- mkBRAM2Server(
@@ -99,67 +117,50 @@ module mkGainLossModelLogDistance#(
     //     param <= regBlock.logDistanceChannelParam.get;
     // endrule
 
-    rule queryDistance;
-        let phyTxReq = txReqQ.first;
-        let txPower = phyTxReq.rfParam.power;
-        txReqQ.deq;
-        txRespQ.enq(GenericResp{});
+    //将phyTxReqQ直接写入txReqQ，等待arbiter调度
+    rule phyTx;
+        let phyTxReq = phyTxReqQ.first;
+        phyTxReqQ.deq;
+        phyTxRespQ.enq(GenericResp{});
+        txReqQ.enq(phyTxReq);
+    endrule
+
+    rule queryDistance; //处理与arbiter的接口rxReqQ
+        let phyTxReq = rxReqQ.first;
+        rxReqQ.deq;
+        rxRespQ.enq(GenericResp{});
         txPipeQ.enq(phyTxReq);
         let bramReq = BRAMRequest{             
             write: False,          
             responseOnWrite: False,  
-            address: genChBramAddr(phyTxReq.srcPhyId, phyTxReq.dstPhyId),            
+            address:  phyTxReq.srcPhyId,            
             datain: 0             
         };
         distanceRam2.portB.request.put(bramReq);
-        // $display("Generate Bram Req! Addr: ", bramReq.address);
     endrule
 
     rule queryLoss;
-        let phyTxReq = txPipeQ.first;
         let distance <- distanceRam2.portB.response.get;
         lossTable.request.put(unpack(distance));
-        // $display("Get Distance, ", distance);
     endrule
 
     rule getLoss;
-        // L = L0 + 10nlog(d/d0), where d0 = 1, n = 2
-        // GainLoss = (1 << SHIFT) * 20log(d) = 256 * (0~96.33dB)
         let loss <- lossTable.response.get;  
-        // $display("Get Loss, ", loss);
         let phyTxReq = txPipeQ.first;
         txPipeQ.deq;
         let txPower = phyTxReq.rfParam.power;
         let rxPower = txPower - unpack(pack(loss));  // power is signed, loss is unsigned
         phyTxReq.rfParam.power = rxPower;
-        rxReqQ.enq(phyTxReq);
+        phyRxReqQ.enq(phyTxReq);
     endrule
 
     rule handshakeRx;
-        rxRespQ.deq;
+        phyRxRespQ.deq;
     endrule
 
-    interface phyTxMetaSrv = toGPServer(txReqQ, txRespQ);
-    interface phyRxMetaClt = toGPClient(rxReqQ, rxRespQ);
+    interface phyTxSrv    = toGPServer(phyTxReqQ, phyTxRespQ);
+    interface phyRxClt    = toGPClient(phyRxReqQ, phyRxRespQ);
+
+    interface phyTxMetaClt = toGPClient(txReqQ, txRespQ);
+    interface phyRxMetaSrv = toGPServer(rxReqQ, rxRespQ);
 endmodule
-
-
-interface ChannelModel;
-    interface Vector#(MAX_DEV_NUM, PhyTxSrv) phyTxSrvVec;
-    interface Vector#(MAX_DEV_NUM, PhyRxClt) phyRxCltVec;
-endinterface
-
-// TODO: channel 
-// module mkChannelFreeSpace(ChannelModel);
-
-//     let arbiter   <- mkFixedPriorityArbiterPipeline1024;
-//     DeMux#(MAX_DEV_NUM, PhyId, PhyEvent)  demux <- mkMuxPipeline1024;
-
-//     rule getArbitResult;
-//         let grantId = arbiter.grantId;
-//         mux.grantId.put
-//     endrule
-
-
-// endmodule
-
