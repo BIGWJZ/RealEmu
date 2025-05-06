@@ -13,19 +13,14 @@ DEBUGFLAGS = -check-assert \
 	-show-stats \
 	-warn-action-shadowing \
 	-warn-method-urgency \
-	-promote-warnings ALL \
-	-demote-errors S0015:G0020:G0023
-VERILOGFLAGS = -verilog -remove-dollar # -use-dpi -verilog-filter cmd
+	-promote-warnings ALL
+VERILOGFLAGS = -verilog -remove-dollar -remove-unused-modules # -use-dpi -verilog-filter cmd
 BLUESIMFLAGS = -parallel-sim-link 16 # -systemc
 BUILDDIR = build
 OUTDIR = -bdir $(BUILDDIR) -info-dir $(BUILDDIR) -simdir $(BUILDDIR) -vdir $(BUILDDIR)
 WORKDIR = -fdir $(abspath .)
-BSVSRCDIR = -p +:$(abspath ../src) 
-
+LIBSRCDIR = $(abspath ../lib/src)
+BSVSRCDIR = -p +:$(abspath ../src):$(LIBSRCDIR)
 DIRFLAGS = $(BSVSRCDIR) $(OUTDIR) $(WORKDIR)
-MISCFLAGS = -print-flags -show-timestamps -show-version -steps 6000000 \
-	-D IS_SUPPORT_RDMA=True \
-	-D IS_250MHZ_512BITS=True
-	# -D IS_DEBUG \
-	# -D DO_BANDWIDTH_TEST=True 
+MISCFLAGS = -print-flags -show-timestamps -show-version -steps 6000000 # -D macro
 RUNTIMEFLAGS = +RTS -K4095M -RTS

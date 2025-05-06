@@ -1,7 +1,7 @@
 include ../Makefile.base
 
 TESTFILE ?= TestNode.bsv
-TOPMODULE ?= mkTestMultiNode2
+TOPMODULE ?= mkTestOneNode
 
 SCRIPT_DIR = ../scripts
 MEM_DIR = ../mem
