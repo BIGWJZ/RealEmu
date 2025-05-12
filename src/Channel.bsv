@@ -81,86 +81,86 @@ module mkGainLossModelIdeal(GainLossModel);
 endmodule
 
 
-module mkGainLossModelLogDistance#(
-    Integer id,
-    BRAM2Port#(portSz, NodeDistance) distanceRam2
-    // RegBlock regBlock                                   
-)(GainLossModel);
-    FIFO#(PhyEvent)    phyTxReqQ   <- mkFIFO;
-    FIFO#(GenericResp) phyTxRespQ  <- mkFIFO;
-    FIFO#(PhyEvent)    phyRxReqQ   <- mkFIFO;
-    FIFO#(GenericResp) phyRxRespQ  <- mkFIFO;
+// module mkGainLossModelLogDistance#(
+//     Integer id,
+//     BRAM2Port#(portSz, NodeDistance) distanceRam2
+//     // RegBlock regBlock                                   
+// )(GainLossModel);
+//     FIFO#(PhyEvent)    phyTxReqQ   <- mkFIFO;
+//     FIFO#(GenericResp) phyTxRespQ  <- mkFIFO;
+//     FIFO#(PhyEvent)    phyRxReqQ   <- mkFIFO;
+//     FIFO#(GenericResp) phyRxRespQ  <- mkFIFO;
 
-    FIFO#(PhyEvent)    txReqQ  <- mkFIFO;
-    FIFO#(GenericResp) txRespQ <- mkFIFO;
-    FIFO#(PhyEvent)    rxReqQ  <- mkFIFO;
-    FIFO#(GenericResp) rxRespQ <- mkFIFO;
+//     FIFO#(PhyEvent)    txReqQ  <- mkFIFO;
+//     FIFO#(GenericResp) txRespQ <- mkFIFO;
+//     FIFO#(PhyEvent)    rxReqQ  <- mkFIFO;
+//     FIFO#(GenericResp) rxRespQ <- mkFIFO;
 
-    FIFO#(PhyEvent)    txPipeQ   <- mkSizedFIFO(valueOf(FSModelPipeDepth));
-    Rom1port#(NodeDistance,UInt#(12)) lossTable <- mkSingleRom("20lgd.mem");
+//     FIFO#(PhyEvent)    txPipeQ   <- mkSizedFIFO(valueOf(FSModelPipeDepth));
+//     Rom1port#(NodeDistance,UInt#(12)) lossTable <- mkSingleRom("20lgd.mem");
 
-    //FIFO#(NodeDistance) distPipeQ <- mkSizedFIFO(valueOf(FSModelPipeDepth));  
+//     //FIFO#(NodeDistance) distPipeQ <- mkSizedFIFO(valueOf(FSModelPipeDepth));  
 
-    // ram的外部定义，需要暴露另一端口给DMA配置
-    // BRAM2Port#(ChBramAddr, NodeDistance) distanceRam2 <- mkBRAM2Server(
-    //     BRAM_Configure {                            
-    //         memorySize   : 0,                       
-    //         loadFormat   : tagged Hex "../scripts/bram_one.txt",     
-    //         latency      : 2,                          
-    //         outFIFODepth : 4,                          
-    //         allowWriteResponseBypass : False           
-    //     }
-    // );
+//     // ram的外部定义，需要暴露另一端口给DMA配置
+//     // BRAM2Port#(ChBramAddr, NodeDistance) distanceRam2 <- mkBRAM2Server(
+//     //     BRAM_Configure {                            
+//     //         memorySize   : 0,                       
+//     //         loadFormat   : tagged Hex "../scripts/bram_one.txt",     
+//     //         latency      : 2,                          
+//     //         outFIFODepth : 4,                          
+//     //         allowWriteResponseBypass : False           
+//     //     }
+//     // );
 
-    // 外部配置接口
-    // rule updateParam;
-    //     param <= regBlock.logDistanceChannelParam.get;
-    // endrule
+//     // 外部配置接口
+//     // rule updateParam;
+//     //     param <= regBlock.logDistanceChannelParam.get;
+//     // endrule
 
-    //将phyTxReqQ直接写入txReqQ，等待arbiter调度
-    rule phyTx;
-        let phyTxReq = phyTxReqQ.first;
-        phyTxReqQ.deq;
-        phyTxRespQ.enq(GenericResp{});
-        txReqQ.enq(phyTxReq);
-    endrule
+//     //将phyTxReqQ直接写入txReqQ，等待arbiter调度
+//     rule phyTx;
+//         let phyTxReq = phyTxReqQ.first;
+//         phyTxReqQ.deq;
+//         phyTxRespQ.enq(GenericResp{});
+//         txReqQ.enq(phyTxReq);
+//     endrule
 
-    rule queryDistance; //处理与arbiter的接口rxReqQ
-        let phyTxReq = rxReqQ.first;
-        rxReqQ.deq;
-        rxRespQ.enq(GenericResp{});
-        txPipeQ.enq(phyTxReq);
-        let bramReq = BRAMRequest{             
-            write: False,          
-            responseOnWrite: False,  
-            address:  phyTxReq.srcPhyId,            
-            datain: 0             
-        };
-        distanceRam2.portB.request.put(bramReq);
-    endrule
+//     rule queryDistance; //处理与arbiter的接口rxReqQ
+//         let phyTxReq = rxReqQ.first;
+//         rxReqQ.deq;
+//         rxRespQ.enq(GenericResp{});
+//         txPipeQ.enq(phyTxReq);
+//         let bramReq = BRAMRequest{             
+//             write: False,          
+//             responseOnWrite: False,  
+//             address:  phyTxReq.srcPhyId,            
+//             datain: 0             
+//         };
+//         distanceRam2.portB.request.put(bramReq);
+//     endrule
 
-    rule queryLoss;
-        let distance <- distanceRam2.portB.response.get;
-        lossTable.request.put(unpack(distance));
-    endrule
+//     rule queryLoss;
+//         let distance <- distanceRam2.portB.response.get;
+//         lossTable.request.put(unpack(distance));
+//     endrule
 
-    rule getLoss;
-        let loss <- lossTable.response.get;  
-        let phyTxReq = txPipeQ.first;
-        txPipeQ.deq;
-        let txPower = phyTxReq.rfParam.power;
-        let rxPower = txPower - unpack(pack(loss));  // power is signed, loss is unsigned
-        phyTxReq.rfParam.power = rxPower;
-        phyRxReqQ.enq(phyTxReq);
-    endrule
+//     rule getLoss;
+//         let loss <- lossTable.response.get;  
+//         let phyTxReq = txPipeQ.first;
+//         txPipeQ.deq;
+//         let txPower = phyTxReq.rfParam.power;
+//         let rxPower = txPower - unpack(pack(loss));  // power is signed, loss is unsigned
+//         phyTxReq.rfParam.power = rxPower;
+//         phyRxReqQ.enq(phyTxReq);
+//     endrule
 
-    rule handshakeRx;
-        phyRxRespQ.deq;
-    endrule
+//     rule handshakeRx;
+//         phyRxRespQ.deq;
+//     endrule
 
-    interface phyTxSrv    = toGPServer(phyTxReqQ, phyTxRespQ);
-    interface phyRxClt    = toGPClient(phyRxReqQ, phyRxRespQ);
+//     interface phyTxSrv    = toGPServer(phyTxReqQ, phyTxRespQ);
+//     interface phyRxClt    = toGPClient(phyRxReqQ, phyRxRespQ);
 
-    interface phyTxMetaClt = toGPClient(txReqQ, txRespQ);
-    interface phyRxMetaSrv = toGPServer(rxReqQ, rxRespQ);
-endmodule
+//     interface phyTxMetaClt = toGPClient(txReqQ, txRespQ);
+//     interface phyRxMetaSrv = toGPServer(rxReqQ, rxRespQ);
+// endmodule
