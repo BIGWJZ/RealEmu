@@ -5,7 +5,6 @@ import FIFO::*;
 import FIFOF::*;
 import RegFile::*;
 import DReg::*;
-import BRAM::*;
 import MathUtils::*;
 
 import Types::*;
@@ -39,17 +38,15 @@ module mkPoll(PollIFC);
 
     
     rule poll if (pollValidReg);
-         for (Integer i = 0; i < valueOf(NodeNum); i = i + 1) begin
-            if (pollIdReg == fromInteger(i) && (txReqQs[i].notEmpty)) begin  // 根据当前id选择处理逻辑
-                let phyTxReq = txReqQs[i].first;
-                txReqQs[i].deq;
-                grandValidRegs[i] <= True;
-                txEventRegs[i]    <= phyTxReq;
-                pollValidReg      <= False;
-            end
+        let current_id = pollIdReg;
+        if (txReqQs[current_id].notEmpty) begin
+            let phyTxReq = txReqQs[current_id].first;
+            txReqQs[current_id].deq;
+            grandValidRegs[current_id] <= True;
+            txEventRegs[current_id] <= phyTxReq;
+            pollValidReg <= False;
         end
-
-        pollIdReg <= pollIdReg + 1;
+        pollIdReg <= (current_id == fromInteger(valueOf(NodeNum)-1))? 0 : current_id + 1;
     endrule
 
     //MUX
