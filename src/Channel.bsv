@@ -42,8 +42,8 @@ typedef 5 FSModelPipeDepth;
     interface PhySrv phyRxMetaSrv; //与arbitration相连
 endinterface
 
-(* synthesize *)
-module mkGainLossModelIdeal(GainLossModel);
+// (* synthesize *)
+module mkGainLossModelIdeal#(Integer id)(GainLossModel);
     FIFO#(PhyEvent)    phyTxReqQ   <- mkFIFO;
     FIFO#(GenericResp) phyTxRespQ  <- mkFIFO;
     FIFO#(PhyEvent)    phyRxReqQ   <- mkFIFO;

@@ -18,7 +18,7 @@ module mkTestArbiter(Empty);
     ArbiterIFC arbiter <- mkArbiter;
     
     //创建节点模型
-    Vector#(NodeNum, GainLossModel) nodes <- replicateM(mkGainLossModelIdeal());
+    Vector#(NodeNum, GainLossModel) nodes <- genWithM(compose(mkGainLossModelIdeal, fromInteger));
     
     //连接接口
     for(Integer i = 0; i < valueOf(NodeNum); i = i + 1) begin
