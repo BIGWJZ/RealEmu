@@ -1,7 +1,7 @@
 include ../Makefile.base
 
-TESTFILE ?= Tb.bsv
-TOPMODULE ?= mkTb
+TESTFILE ?= TestPoll.bsv
+TOPMODULE ?= mkTestPoll
 
 SCRIPT_DIR = ../scripts
 MEM_DIR = ../mem
