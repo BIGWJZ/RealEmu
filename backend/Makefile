@@ -3,14 +3,14 @@ include ../Makefile.base
 TCLDIR ?= xdc
 CLK ?= emu_clock
 OOC ?= 1
-VLOGDIR ?= ../src/verilog
+VLOGDIR ?= ./verilog
 OUTPUTDIR ?= output
 LOGFILE ?= run.log
 RUNTOPHASE ?= all # synth place route all
 PARTNAME = xcvu13p-fhgb2104-2-i
 
 TARGETFILE ?= ../src/BsvTop.bsv
-TOPMODULE ?= mkBsvTop
+TOPMODULE ?= mkRawEmuCore
 
 BACKENDDIR ?= .
 MAX_NET_PATH_NUM ?= 10000
@@ -39,12 +39,12 @@ export DIR_BSV_GENERATED_STUB = $(BACKENDDIR)/verilog/stub
 
 compile:
 	mkdir -p $(BUILDDIR)
-	bsc -elab -verilog -verbose $(BLUESIMFLAGS) $(DEBUGFLAGS) $(DIRFLAGS) $(MISCFLAGS) $(RECOMPILEFLAGS) $(RUNTIMEFLAGS) $(SCHEDFLAGS) $(TRANSFLAGS) -g $(TOPMODULE) $(TARGETFILE)
+	bsc -elab -sim -verbose $(BLUESIMFLAGS) $(DEBUGFLAGS) $(DIRFLAGS) $(MISCFLAGS) $(RECOMPILEFLAGS) $(RUNTIMEFLAGS) $(SCHEDFLAGS) $(TRANSFLAGS) -g $(TOPMODULE) $(TARGETFILE)
 
 verilog: compile 
-	mkdir -p $(DIR_BSV_GENERATED)
+	mkdir -p $(VLOGDIR)
 	bsc $(VERILOGFLAGS) $(DIRFLAGS) $(MISCFLAGS) $(RECOMPILEFLAGS) $(RUNTIMEFLAGS) $(TRANSFLAGS) -g $(TOPMODULE) $(TARGETFILE)
-	bluetcl listVlogFiles.tcl -p $(IMPORT_VERILOG_DIR) -bdir $(BUILDDIR) -vdir $(BUILDDIR) $(TOPMODULE) $(TOPMODULE) | grep -i '\.v' | xargs -I {} cp {} $(DIR_BSV_GENERATED)
+	bluetcl listVlogFiles.tcl -bdir $(BUILDDIR) -vdir $(BUILDDIR) $(TOPMODULE) $(TOPMODULE) | grep -i '\.v' | xargs -I {} cp {} $(VLOGDIR)
 
 vivado: verilog
 	vivado -mode tcl -nolog -nojournal -source ./build_top.tcl 2>&1 | tee $(LOGFILE)
