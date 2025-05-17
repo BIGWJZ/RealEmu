@@ -43,7 +43,8 @@ typedef 5 FSModelPipeDepth;
 endinterface
 
 // (* synthesize *)
-module mkGainLossModelIdeal#(Integer id)(GainLossModel);
+// module mkGainLossModelIdeal#(Integer id)(GainLossModel);
+module mkGainLossModelIdeal(GainLossModel);
     FIFO#(PhyEvent)    phyTxReqQ   <- mkFIFO;
     FIFO#(GenericResp) phyTxRespQ  <- mkFIFO;
     FIFO#(PhyEvent)    phyRxReqQ   <- mkFIFO;

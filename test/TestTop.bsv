@@ -11,27 +11,25 @@ import PhyCore::*;
 import Channel::*;
 import Poll::*;
 
-typedef 8 NodeNum;             // 总节点数
-
 // 最简单的一次发包情况(无NAV)
-module mkTestTop1(Empty);
+module mkTestTop(Empty);
 
     // ==================== 节点实例化 ====================
     // 生成MAC核心时同样处理
-    Vector#(NodeNum, MacCore) macNodes <- genWithM(compose(mkMacPipe, fromInteger));
+    Vector#(NODE_NUM, MacCore) macNodes <- genWithM(compose(mkMacPipe, fromInteger));
 
     // 生成8个带UInt参数的PHY核心
-    Vector#(NodeNum, PhyCore) phyNodes <- genWithM(compose(mkPhyYansWifi, fromInteger));
+    Vector#(NODE_NUM, PhyCore) phyNodes <- genWithM(compose(mkPhyYansWifi, fromInteger));
     
     // 生成信道模型
-    Vector#(NodeNum, GainLossModel) channels <- genWithM(compose(mkGainLossModelIdeal, fromInteger));
+    Vector#(NODE_NUM, GainLossModel) channels <- replicateM(mkGainLossModelIdeal);
     
     // 创建轮询控制器
     PollIFC pollController <- mkPoll;
 
     // ==================== 节点连接 ====================
     // 连接MAC层和PHY层
-    for(Integer i=0; i<valueOf(NodeNum); i=i+1) begin
+    for(Integer i=0; i<valueOf(NODE_NUM); i=i+1) begin
         // MAC层与PHY层连接
         mkConnection(macNodes[i].lowMacTxClt, phyNodes[i].lowMacTxSrv);  // MAC发送->PHY发送
         mkConnection(macNodes[i].lowMacRxSrv, phyNodes[i].lowMacRxClt);  // MAC接收<-PHY接收
@@ -53,17 +51,17 @@ module mkTestTop1(Empty);
     endrule
 
     rule updatePhyStatus;
-        for (Integer i = 0; i < valueof(NodeNum); i = i + 1) begin
+        for (Integer i = 0; i < valueof(NODE_NUM); i = i + 1) begin
             let phyStatus = phyNodes[i].getPhyStatus;
             macNodes[i].phyStatus.put(phyStatus);
         end
     endrule
 
-    for (Integer i = 0; i < valueof(NodeNum); i = i + 1) begin
-        rule send if ((cycleCount > fromInteger(i * 100000)) && (i % 2 == 0));
+    for (Integer i = 0; i < valueof(NODE_NUM)/4; i = i + 2) begin
+        rule send if (cycleCount > fromInteger(i * 100000));
             let txReq = getDefaultMacEvent;
             txReq.srcMacId = fromInteger(i);
-            txReq.dstMacId = fromInteger((i + 1) % valueof(NodeNum));
+            txReq.dstMacId = fromInteger((i + 1) % valueof(NODE_NUM));
             txReq.mpduDigest.frameType = fromInteger(valueOf(FC_TYPE_DATA));
             txReq.mpduDigest.length = 2048;
             macNodes[i].highMacTxSrv.request.put(txReq);
@@ -72,7 +70,7 @@ module mkTestTop1(Empty);
     end
 
     // 为每个节点配置接收规则
-    for (Integer i = 0; i < valueof(NodeNum); i = i + 1) begin
+    for (Integer i = 0; i < valueof(NODE_NUM); i = i + 1) begin
         rule receive;
             let rxReq <- macNodes[i].highMacRxClt.request.get;
             $display("mac%d Test Pass!", i);
