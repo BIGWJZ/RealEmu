@@ -18,6 +18,12 @@
 
 import ClientServer::*;
 
+//----------------------------------------------------
+// treedepth = 2 
+typedef 64 NODE_NUM;
+typedef 8  GROUP_SIZE; 
+//----------------------------------------------------
+
 typedef 1024 MAX_DEV_NUM;
 
 typedef 10 DEV_ID_WIDTH;

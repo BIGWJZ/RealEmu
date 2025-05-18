@@ -10,8 +10,8 @@ module mkTestPhy(Empty);
 
     Reg#(Bool) isInitReg <- mkReg(False);
 
-    PhyCore dut0 <- mkPhyYansWifi;
-    PhyCore dut1 <- mkPhyYansWifi;
+    PhyCore dut0 <- mkPhyYansWifi(0);
+    PhyCore dut1 <- mkPhyYansWifi(1);
 
     mkConnection(dut0.phyTxClt, dut1.phyRxSrv);  // dut0发送 -> dut1接收
     mkConnection(dut1.phyTxClt, dut0.phyRxSrv);  // dut1发送 -> dut0接收
