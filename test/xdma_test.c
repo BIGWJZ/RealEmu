@@ -5,6 +5,7 @@
 #include <unistd.h>
 #include <sys/mman.h>
 #include <string.h>
+#include <errno.h>
 
 // 定义与Bluespec结构体对齐的数据结构
 #pragma pack(push, 1) // 禁用内存对齐，确保与FPGA侧严格匹配
@@ -14,14 +15,14 @@
 //    uint32 x2;
 //}
 typedef struct {
-    uint16_t srcMacId:10;  //10位
-    uint16_t dstMacId:10;  //10位
+    uint16_t srcMacId;  //16位
+    uint16_t dstMacId;  //16位
     struct {
         uint16_t power:12;   //12位
         uint16_t mcs:4;     //4位
     } rfParam;
     struct {
-        uint8_t frametype:4;  // 2位
+        uint8_t frametype:4;  // 4位
         uint8_t  framesubtype:4;  //4位
         uint16_t duration;  //16位
         uint16_t mpdulen;   //16位
@@ -44,62 +45,71 @@ int main() {
         perror("Failed to open XDMA device");
         return -1;
     }
-
-    // 分配对齐的内存缓冲区（DMA 要求）
-    size_t buf_size = sizeof(MacEvent) * BURST_SIZE;
-    MacEvent *rx_buf = (MacEvent*)aligned_alloc(512, buf_size);
-    MacEvent *tx_buf = (MacEvent*)aligned_alloc(512, buf_size);
-
-    // 初始化测试数据（示例：递增序列）
-    for (int i = 0; i < BURST_SIZE; i++) {
-        tx_buf[i].srcMacId = 0x0;                 
-        tx_buf[i].dstMacId = 0x1;                
-        tx_buf[i].rfParam.power = 31*32;          
-        tx_buf[i].rfParam.mcs = 0;       
-        tx_buf[i].mpduDigest.frametype = 2; 
-        tx_buf[i].mpduDigest.framesubtype = 0;
-        tx_buf[i].mpduDigest.duration = 0;
-        tx_buf[i].mpduDigest.mpdulen = 2048;            
-        tx_buf[i].mpduDigest.mpducacheaddr = 0;       
-        //tx_buf[i].status = 0;
-    }
-    memset(rx_buf, 0, BUFFER_SIZE);
-
-
-        // 通过 H2C 通道发送数据
-    ssize_t written = write(h2c_fd, tx_buf, BUFFER_SIZE);
-    if (written != BUFFER_SIZE) {
-        perror("H2C write failed");
+    printf("open success!\n");
+    // 修改缓冲区分配和初始化
+    size_t buf_size = 64; // 固定512字节
+    MacEvent *rx_buf = (MacEvent*)aligned_alloc(4096, buf_size); // 使用更大的对齐
+    uint8_t *tx_buf = (uint8_t*)aligned_alloc(4096, buf_size); // 改为uint8_t类型
+    if (!rx_buf || !tx_buf) {
+        perror("Memory allocation failed");
+        close(h2c_fd);
+        close(c2h_fd);
         return -1;
     }
-    printf("Sent %zd bytes to FPGA\n", written);
+    memset(tx_buf, 0, buf_size);
+
+    // 直接填充数据0 80 00 00 00 20 3e 00 04 00
+    uint8_t data[20] = {
+        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+        0x00, 0x10, 0x28, 0x00, 0x40, 0x00, 0x7c, 0x02,
+        0x00, 0x00, 0x00, 0x00
+    };
+
+    memcpy(tx_buf, data, sizeof(data)); // 将数据复制到tx_buf
+
+    // 确保结构体大小与传输大小匹配
+    if (sizeof(MacEvent) > buf_size) {
+        printf("MacEvent size %zu exceeds buffer size %zu\n", sizeof(MacEvent), buf_size);
+        close(h2c_fd);
+        close(c2h_fd);
+        free(tx_buf);
+        free(rx_buf);
+        return -1;
+    }
 
         // 通过 C2H 通道接收数据
-    ssize_t read_bytes = read(c2h_fd, rx_buf, BUFFER_SIZE);
-    if (read_bytes != BUFFER_SIZE) {
+
+	if (fork() == 0) {
+                ssize_t read_bytes = read(c2h_fd, rx_buf, buf_size);
+                printf("Received %zd bytes from FPGA\n", read_bytes);
+                MacEvent *event = (MacEvent*)rx_buf;
+                printf("MacEvent data:\n");
+                printf("  srcMacId: 0x%x\n", event->srcMacId);
+                printf("  dstMacId: 0x%x\n", event->dstMacId);
+                printf("  rfParam.power: %u\n", event->rfParam.power);
+                printf("  rfParam.mcs: %u\n", event->rfParam.mcs);
+                printf("  mpduDigest.frametype: %u\n", event->mpduDigest.frametype);
+                printf("  mpduDigest.mpducacheaddr: 0x%lx\n", event->mpduDigest.mpducacheaddr);
+                return 0;
+        }
+    else {
+        ssize_t written = write(h2c_fd, tx_buf, buf_size);
+        if (written < 0) {
+            perror("H2C write failed");
+            printf("Error details: %s\n", strerror(errno));
+        } else {
+            printf("Sent %zd bytes to FPGA\n", written);
+        }
+        sleep(2);
+    }
+    /*
+    if (read_bytes != buf_size) {
         perror("C2H read failed");
         return -1;
-    }
-    printf("Received %zd bytes from FPGA\n", read_bytes);
+    }*/
+
 
         // 验证数据一致性
-    int errors = 0;
-    for (int i = 0; i < BUFFER_SIZE / sizeof(int); i++) {
-        int expected = i; // 根据您的 CSMA 逻辑调整预期值
-        if (((int*)rx_buf)[i] != expected) {
-            printf("Error at index %d: Expected %d, Got %d\n", 
-                   i, expected, ((int*)rx_buf)[i]);
-            errors++;
-        }
-    }
-
-    if (errors == 0) {
-        printf("Test passed!\n");
-    } else {
-        printf("Test failed with %d errors\n", errors);
-    }
-
-    // 清理资源
     close(h2c_fd);
     close(c2h_fd);
     free(tx_buf);

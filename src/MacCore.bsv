@@ -396,6 +396,7 @@ module mkMacDCF#(Integer id)(MacCore);
             // Phy->lowMac接收队列非空, 进入接收处理逻辑
             if (lowMacRxReqQ.notEmpty) begin
                 let rxReq = lowMacRxReqQ.first;
+                $display("Node %0d , low mac rxReq (hex): %h", id , rxReq);
                 if (isMyFrame(id, rxReq.dstMacId) && isDataFrame(rxReq.mpduDigest)) begin
                     // 收到Data帧，需要回复ACK，先退避SIFS
                     nextTask = NT_SEND_ACK;
@@ -431,6 +432,7 @@ module mkMacDCF#(Integer id)(MacCore);
                     // 一次新的发送/重传
                         backOffFsm.start(tuple2(False, True)); //DIFS and expBackOff
                         let txReq = highMacTxReqQ.first;
+                        $display("Node %0d ,high mac txReq (hex): %h", id , txReq);
                         // 长帧使用RTS
                         if (txReq.mpduDigest.length > macCfgReg.rtsThreshold) begin
                             nextTask = NT_SEND_RTS;

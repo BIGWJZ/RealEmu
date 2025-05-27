@@ -72,19 +72,29 @@ module mkTestOneNode(Empty);
     Reg#(Bool) testInitReg <- mkReg(False); //测试一次
 
     rule send if (!testInitReg);
+        /*
         let txReq = getDefaultMacEvent;
         txReq.srcMacId = 0;
         txReq.dstMacId = 1;
         txReq.mpduDigest.frameType = fromInteger(valueOf(FC_TYPE_DATA));
         txReq.mpduDigest.length = 2048;
+        */
+        
+        Bit#(153) txReqHex = 153'h0000000027c0040002810000000000000000000;
+        MacEvent txReq = unpack(txReqHex);
+        
         mac0.highMacTxSrv.request.put(txReq);
+        $display("txReq (hex): %h", txReq);
         immLog("mkTestMacSimpleOnce", "send", $format("mac0 put a data to the txQueue!"));
         testInitReg <= True;
     endrule
 
     rule receive;
         let rxReq <- mac1.highMacRxClt.request.get;
+        
         $display(rxReq);
+        $display(rxReq.srcMacId);
+        $display(rxReq.dstMacId);
         $display("Test Pass");
         $finish();
     endrule

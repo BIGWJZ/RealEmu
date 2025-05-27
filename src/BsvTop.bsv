@@ -52,8 +52,8 @@ endinterface
 (* synthesize *)
 module mkRawEmuCore(RawEmuCore);
     let core <- mkEmuCore; //core的get接口转换成axi
-    let axiMasterIfc <- mkGetToRawAxiStreamMaster(toGet(core.tx),CF);
-    let axiSlaveIfc  <- mkPutToRawAxiStreamSlave(toPut(core.rx),CF);
+    let axiMasterIfc <- mkGetToRawAxiStreamMaster(core.tx,CF);
+    let axiSlaveIfc  <- mkPutToRawAxiStreamSlave(core.rx,CF);
 
     //FIFOF#(Bit#(CONFIG_WIDTH)) configFifo <- mkFIFOF;
     //let axiLiteSlaveIfc <- mkRawAxi4LiteSlave(toPut(configFifo));
@@ -104,7 +104,7 @@ module mkEmuCore(EmuCore);
 
     // 示例：将MAC层数据转发到AXI发送接口
     rule forward_mac_to_axi;
-        let macEvent <- macs[0].highMacRxClt.request.get();
+        let macEvent <- macs[1].highMacRxClt.request.get();
         AxiStream#(KEEP_WIDTH, TUSER_WIDTH) axiPkt = AxiStream{
             tData: zeroExtend(pack(macEvent)),
             tKeep: '1,      // 所有字节有效
@@ -116,16 +116,19 @@ module mkEmuCore(EmuCore);
 
     // 示例：从AXI接收数据并转发到MAC层
     rule forward_axi_to_mac;
-        let axiPkt <- toGet(axi2MacFifo).get();
+        
+        let axiPkt = axi2MacFifo.first;
+        axi2MacFifo.deq;
+
         MacEvent macEvent = unpack(truncate(axiPkt.tData));
+        
         /*
-        MacEvent macEvent = MacEvent{
-            srcMacId: 0,
-            dstMacId: 1,
-            mpduDigest: unpack(truncate(axiPkt.tData)),
-            rfParam: RfParam{power: 0, mcs: 0},
-            status: True
-        };*/
+        let txReq = getDefaultMacEvent;
+        txReq.srcMacId = 0;
+        txReq.dstMacId = 1;
+        txReq.mpduDigest.frameType = fromInteger(valueOf(FC_TYPE_DATA));
+        txReq.mpduDigest.length = 2048;
+        */
         macs[0].highMacTxSrv.request.put(macEvent);
     endrule
 
