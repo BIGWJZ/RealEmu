@@ -26,11 +26,11 @@ typedef 8  GROUP_SIZE;
 
 typedef 1024 MAX_DEV_NUM;
 
-typedef 10 DEV_ID_WIDTH;
+typedef 16 DEV_ID_WIDTH;
 typedef 12 POWER_DB_WIDTH;  // (-128~127 dbm) * 256 = -32768~32767
 typedef 8  POWER_DB_SHIFT_WIDTH; // 2^8 = 256
 typedef 16 MPDU_LEN_WIDTH;
-typedef 2  FC_TYPE_WIDTH;
+typedef 4  FC_TYPE_WIDTH;
 typedef 4  FC_SUB_WIDTH;
 typedef 16 FC_WIDTH;
 typedef 16 DI_WIDTH;
